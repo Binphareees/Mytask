@@ -1,11 +1,10 @@
 import { z } from "zod";
-
-export const PRIORITIES = ["low", "medium", "high"] as const;
-
-export const TITLE_MAX_LENGTH = 200;
-export const DESCRIPTION_MAX_LENGTH = 2000;
-
-export type DateOnly = string;
+import {
+  DEFAULT_PRIORITY,
+  DESCRIPTION_MAX_LENGTH,
+  PRIORITIES,
+  TITLE_MAX_LENGTH,
+} from "@/lib/constants";
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -49,7 +48,7 @@ export const createTaskSchema = z.object({
     .optional(),
   priority: z
     .enum(PRIORITIES, { error: "Priority must be low, medium, or high" })
-    .default("medium"),
+    .default(DEFAULT_PRIORITY),
   dueDate: optionalDueDateSchema,
 });
 
