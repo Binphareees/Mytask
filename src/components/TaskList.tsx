@@ -1,5 +1,6 @@
 import { TaskCompletionButton } from "@/components/TaskCompletionButton";
 import { TaskDeleteControl } from "@/components/TaskDeleteControl";
+import { TaskEditControl } from "@/components/TaskEditControl";
 import type { TaskListItem } from "@/lib/queries/tasks";
 
 type TaskListProps = {
@@ -126,6 +127,16 @@ function TaskRow({ task }: { task: TaskListItem }) {
           ) : null}
         </div>
       </div>
+
+      <TaskEditControl
+        taskId={task.id}
+        values={{
+          title: task.title,
+          description: task.description ?? "",
+          priority: task.priority,
+          dueDate: task.dueDate ?? "",
+        }}
+      />
 
       <TaskDeleteControl taskId={task.id} title={task.title} />
     </li>

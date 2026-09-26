@@ -7,6 +7,7 @@ import {
   validateCreateTaskInput,
   validateDeleteTaskInput,
   validateToggleTaskCompletionInput,
+  validateUpdateTaskInput,
 } from "@/lib/validations/task";
 import type { ActionResult } from "@/types";
 
@@ -140,5 +141,55 @@ export async function deleteTask(
     console.error("deleteTask failed", error);
 
     return { success: false, error: "Failed to delete task" };
+  }
+}
+
+/**
+ * Updates the four editable fields of one task.
+ *
+ * The client sends the task id plus the fields it wants to change. The Prisma
+ * `data` payload is written out field by field from the validated result
+ * rather than spread, so adding a column to the schema can never silently make
+ * it client-writable.
+ *
+ * Completion state is untouched: `status` and `completedAt` are absent from
+ * both the schema and this payload, which keeps `toggleTaskCompletion` the only
+ * writer of those columns and leaves a completed task completed after an edit.
+ */
+export async function updateTask(
+  input: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  const validation = validateUpdateTaskInput(input);
+
+  if (!validation.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: validation.fieldErrors,
+    };
+  }
+
+  const { taskId, title, description, priority, dueDate } = validation.data;
+
+  try {
+    // `updateMany` matches on id and reports how many rows changed, so a task
+    // deleted after the list was rendered surfaces as a count of 0 instead of a
+    // thrown Prisma error.
+    const result = await prisma.task.updateMany({
+      where: { id: taskId },
+      data: { title, description, priority, dueDate },
+    });
+
+    if (result.count === 0) {
+      return { success: false, error: "Task not found" };
+    }
+
+    revalidatePath("/");
+
+    return { success: true, data: { id: taskId } };
+  } catch (error) {
+    console.error("updateTask failed", error);
+
+    return { success: false, error: "Failed to update task" };
   }
 }

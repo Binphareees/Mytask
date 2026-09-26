@@ -81,16 +81,22 @@ export function validateCreateTaskInput(
 const TASK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
+ * Single definition of the task-id rules, shared by every action that takes a
+ * task reference (toggle, delete, update) so the three cannot drift apart.
+ */
+const taskIdSchema = z
+  .string({ error: "Task id is required" })
+  .min(1, { error: "Task id is required" })
+  .max(64, { error: "Task id is too long" })
+  .regex(TASK_ID_PATTERN, { error: "Task id is malformed" });
+
+/**
  * Only the task id and the intended end state are accepted. Status strings,
  * `completedAt` values and every other column are deliberately absent: the
  * server derives the actual database update from `completed` alone.
  */
 export const toggleTaskCompletionSchema = z.object({
-  taskId: z
-    .string({ error: "Task id is required" })
-    .min(1, { error: "Task id is required" })
-    .max(64, { error: "Task id is too long" })
-    .regex(TASK_ID_PATTERN, { error: "Task id is malformed" }),
+  taskId: taskIdSchema,
   completed: z.boolean({ error: "Completed must be a boolean" }),
 });
 
@@ -127,11 +133,7 @@ export function validateToggleTaskCompletionInput(
  * `status` or `completedAt` has them discarded here before the action runs.
  */
 export const deleteTaskSchema = z.object({
-  taskId: z
-    .string({ error: "Task id is required" })
-    .min(1, { error: "Task id is required" })
-    .max(64, { error: "Task id is too long" })
-    .regex(TASK_ID_PATTERN, { error: "Task id is malformed" }),
+  taskId: taskIdSchema,
 });
 
 export type DeleteTaskInput = z.infer<typeof deleteTaskSchema>;
@@ -144,6 +146,52 @@ export function validateDeleteTaskInput(
   input: unknown,
 ): DeleteTaskValidationResult {
   const result = deleteTaskSchema.safeParse(input);
+
+  if (result.success) {
+    return { success: true, data: result.data };
+  }
+
+  return {
+    success: false,
+    fieldErrors: z.flattenError(result.error).fieldErrors,
+  };
+}
+
+/**
+ * An update carries the task id plus exactly the four editable fields.
+ *
+ * The field rules are lifted from {@link createTaskSchema} so an edit cannot
+ * drift from a create, with one deliberate difference: `priority` is required
+ * here instead of defaulting. A defaulted priority would let a client that
+ * omitted the field silently reset an existing task to "medium".
+ *
+ * `status` and `completedAt` are absent by design. `toggleTaskCompletion` is
+ * the only writer of completion state, and it derives both values itself, so
+ * adding them here would create a second, less safe path to the same state.
+ *
+ * Zod strips unknown keys, so `id`, `status`, `completedAt`, `createdAt`,
+ * `updatedAt`, or a nested `where`/`data` payload sent by a client are dropped
+ * here and can never reach the update.
+ */
+export const updateTaskSchema = createTaskSchema
+  .omit({ priority: true })
+  .extend({
+    taskId: taskIdSchema,
+    priority: z.enum(PRIORITIES, {
+      error: "Priority must be low, medium, or high",
+    }),
+  });
+
+export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+
+export type UpdateTaskValidationResult =
+  | { success: true; data: UpdateTaskInput }
+  | { success: false; fieldErrors: Record<string, string[]> };
+
+export function validateUpdateTaskInput(
+  input: unknown,
+): UpdateTaskValidationResult {
+  const result = updateTaskSchema.safeParse(input);
 
   if (result.success) {
     return { success: true, data: result.data };
