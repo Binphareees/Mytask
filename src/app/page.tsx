@@ -1,10 +1,11 @@
 import { TaskForm } from "@/components/TaskForm";
-import { prisma } from "@/lib/db";
+import { TaskList } from "@/components/TaskList";
+import { getTaskList } from "@/lib/queries/tasks";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const taskCount = await prisma.task.count();
+  const { tasks, remainingCount } = await getTaskList();
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 sm:py-12">
@@ -17,9 +18,7 @@ export default async function Home() {
 
       <TaskForm />
 
-      <p aria-live="polite" className="text-sm text-zinc-500">
-        Tasks in database: <span className="font-mono">{taskCount}</span>
-      </p>
+      <TaskList tasks={tasks} remainingCount={remainingCount} />
     </main>
   );
 }

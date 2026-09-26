@@ -2,10 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
+import { TODO_STATUS } from "@/lib/constants";
 import { validateCreateTaskInput } from "@/lib/validations/task";
 import type { ActionResult } from "@/types";
-
-const INITIAL_STATUS = "todo";
 
 export async function createTask(
   input: unknown,
@@ -29,7 +28,7 @@ export async function createTask(
         description,
         priority,
         dueDate,
-        status: INITIAL_STATUS,
+        status: TODO_STATUS,
       },
     });
 
