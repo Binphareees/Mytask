@@ -1,3 +1,4 @@
+import { TaskCompletionButton } from "@/components/TaskCompletionButton";
 import type { TaskListItem } from "@/lib/queries/tasks";
 
 type TaskListProps = {
@@ -82,7 +83,10 @@ function TaskRow({ task }: { task: TaskListItem }) {
 
   return (
     <li className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 sm:p-4">
-      <CompletionIndicator isComplete={task.isComplete} />
+      <TaskCompletionButton taskId={task.id} isComplete={task.isComplete} />
+      <span className="sr-only">
+        {task.isComplete ? "Completed task" : "Open task"}
+      </span>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <p
@@ -120,32 +124,5 @@ function TaskRow({ task }: { task: TaskListItem }) {
         </div>
       </div>
     </li>
-  );
-}
-
-/**
- * Non-interactive completion indicator: a decorative icon plus visually
- * hidden text. Deliberately not a checkbox or button until tasks can be
- * completed.
- */
-function CompletionIndicator({ isComplete }: { isComplete: boolean }) {
-  return (
-    <>
-      <span
-        aria-hidden="true"
-        className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border ${
-          isComplete
-            ? "border-green-600 bg-green-600 text-white"
-            : "border-zinc-300 bg-white text-transparent"
-        }`}
-      >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M13.53 4.28 6.28 11.53a.75.75 0 0 1-1.06 0L2.5 8.81l1.06-1.06 1.47 1.47 3.72-3.72z" />
-        </svg>
-      </span>
-      <span className="sr-only">
-        {isComplete ? "Completed task" : "Open task"}
-      </span>
-    </>
   );
 }

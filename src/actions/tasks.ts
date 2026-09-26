@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { TODO_STATUS } from "@/lib/constants";
-import { validateCreateTaskInput } from "@/lib/validations/task";
+import { DONE_STATUS, TODO_STATUS } from "@/lib/constants";
+import {
+  validateCreateTaskInput,
+  validateToggleTaskCompletionInput,
+} from "@/lib/validations/task";
 import type { ActionResult } from "@/types";
 
 export async function createTask(
@@ -39,5 +42,55 @@ export async function createTask(
     console.error("createTask failed", error);
 
     return { success: false, error: "Failed to create task" };
+  }
+}
+
+/**
+ * Moves a task between the incomplete and complete states.
+ *
+ * The client sends only the task id and the intended end state. It cannot send
+ * a status string, a `completedAt` value, or any other column: `data` is built
+ * here from `completed` alone, and `completedAt` is stamped from server time.
+ *
+ * Because the target state is explicit rather than flipped from the current
+ * row, repeating a request is idempotent, so a duplicate submission cannot
+ * toggle the task twice.
+ */
+export async function toggleTaskCompletion(
+  input: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  const validation = validateToggleTaskCompletionInput(input);
+
+  if (!validation.success) {
+    return {
+      success: false,
+      error: "Validation failed",
+      fieldErrors: validation.fieldErrors,
+    };
+  }
+
+  const { taskId, completed } = validation.data;
+
+  try {
+    const result = await prisma.task.updateMany({
+      where: { id: taskId },
+      data: completed
+        ? { status: DONE_STATUS, completedAt: new Date() }
+        : { status: TODO_STATUS, completedAt: null },
+    });
+
+    // `updateMany` matches on id and reports how many rows changed, so a
+    // missing task surfaces as a count of 0 instead of a thrown Prisma error.
+    if (result.count === 0) {
+      return { success: false, error: "Task not found" };
+    }
+
+    revalidatePath("/");
+
+    return { success: true, data: { id: taskId } };
+  } catch (error) {
+    console.error("toggleTaskCompletion failed", error);
+
+    return { success: false, error: "Failed to update task" };
   }
 }
