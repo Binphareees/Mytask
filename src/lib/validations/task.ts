@@ -1,8 +1,10 @@
 import { z } from "zod";
 import {
   DEFAULT_PRIORITY,
+  DEFAULT_TASK_FILTER,
   DESCRIPTION_MAX_LENGTH,
   PRIORITIES,
+  TASK_FILTERS,
   TITLE_MAX_LENGTH,
 } from "@/lib/constants";
 
@@ -238,4 +240,40 @@ export function validateUpdateTaskInput(
     success: false,
     fieldErrors: z.flattenError(result.error).fieldErrors,
   };
+}
+
+/**
+ * The task-list filter arrives from the URL, which makes it untrusted input
+ * like any other client payload. This function is the single normalization
+ * point between the URL and the query layer:
+ *
+ *   undefined (no parameter) -> the default filter, `all`
+ *   "all" | "todo" | "done"  -> that filter, verbatim
+ *   anything else            -> rejected; the caller falls back to the default
+ *
+ * Only the three logical states of {@link TASK_FILTERS} are accepted — never
+ * a raw database status string — so a hostile or malformed value can become
+ * neither a Prisma condition nor a rendered status.
+ */
+export const taskFilterSchema = z.enum(TASK_FILTERS, {
+  error: "Filter must be all, todo, or done",
+});
+
+export type TaskFilterValidationResult =
+  | { success: true; data: (typeof TASK_FILTERS)[number] }
+  | { success: false; error: string };
+
+export function parseTaskFilter(value: unknown): TaskFilterValidationResult {
+  // An absent parameter is the default view, not an error.
+  if (value === undefined) {
+    return { success: true, data: DEFAULT_TASK_FILTER };
+  }
+
+  const result = taskFilterSchema.safeParse(value);
+
+  if (result.success) {
+    return { success: true, data: result.data };
+  }
+
+  return { success: false, error: "Filter must be all, todo, or done" };
 }

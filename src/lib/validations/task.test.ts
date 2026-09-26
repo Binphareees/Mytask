@@ -19,6 +19,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseTaskFilter,
   validateCreateTaskInput,
   validateDeleteTaskInput,
   validateToggleTaskCompletionInput,
@@ -648,5 +649,79 @@ describe("validation errors are attributed to a field", () => {
 
     expect(result.success).toBe(true);
     expect(result).not.toHaveProperty("fieldErrors");
+  });
+});
+
+/**
+ * The task-list filter arrives from the URL search params, so it is untrusted
+ * input like any action payload. parseTaskFilter is the single normalization
+ * point between the URL and the query layer; these tests pin its contract.
+ */
+describe("parseTaskFilter", () => {
+  it("accepts the three logical filter states", () => {
+    for (const expected of ["all", "todo", "done"] as const) {
+      const result = parseTaskFilter(expected);
+
+      expect(result).toEqual({ success: true, data: expected });
+    }
+  });
+
+  it("treats an absent parameter as the default filter, not an error", () => {
+    // `/` carries no `filter` at all; the page passes undefined through.
+    expect(parseTaskFilter(undefined)).toEqual({ success: true, data: "all" });
+  });
+
+  it("rejects invalid values rather than guessing a filter", () => {
+    // A typo must surface as a rejection so the caller can fall back to the
+    // default view; it must never be normalized into a database condition.
+    const result = parseTaskFilter("tdo");
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects values that are not strings", () => {
+    for (const hostile of [
+      null,
+      7,
+      true,
+      {},
+      ["todo"],
+      { toString: () => "todo" },
+    ]) {
+      expect(parseTaskFilter(hostile).success).toBe(false);
+    }
+  });
+
+  it("rejects database status-like and injection-shaped values", () => {
+    // These are exactly the strings that would be dangerous if the filter
+    // were ever passed to the database layer raw. Only the three logical
+    // states are accepted; the status constants themselves are NOT filter
+    // input (the mapping to them happens inside the query layer).
+    for (const hostile of [
+      "todo OR 1=1",
+      "done'; DROP TABLE Task;--",
+      "__proto__",
+      "constructor",
+      "TODO",
+      "Done",
+      " todo",
+      "todo ",
+      "",
+    ]) {
+      expect(parseTaskFilter(hostile).success).toBe(false);
+    }
+  });
+
+  it("rejects every value that is not exactly one of the three states", () => {
+    // Longer strings that merely contain a valid filter must not match.
+    expect(parseTaskFilter("todoextra").success).toBe(false);
+    expect(parseTaskFilter("alltasks").success).toBe(false);
+  });
+
+  it("gives the rejection a stable, human-readable error", () => {
+    expect(parseTaskFilter("nonsense")).toEqual({
+      success: false,
+      error: "Filter must be all, todo, or done",
+    });
   });
 });

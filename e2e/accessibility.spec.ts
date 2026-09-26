@@ -49,6 +49,29 @@ test.describe("axe across all application states", () => {
     await expectNoAxeViolations(page, "one task in the list");
   });
 
+  test("filtered empty state is clean", async ({ page }) => {
+    // The Active filter with nothing to show: the filter navigation plus the
+    // filter-specific empty state, scanned as the URL delivers it.
+    await page.goto("/?filter=todo");
+
+    await expect(page.getByText("No active tasks")).toBeVisible();
+    await expectNoAxeViolations(page, "filtered empty state (Active)");
+  });
+
+  test("filtered view with tasks is clean", async ({ page }) => {
+    await page.goto("/");
+    const done = await createTask(page, { title: "Scanned in Done" });
+    await done.getByRole("button", { name: "Mark task complete" }).click();
+    await expect(
+      done.getByRole("button", { name: "Mark task incomplete" }),
+    ).toBeVisible();
+
+    await page.goto("/?filter=done");
+
+    await expect(taskRow(page, "Scanned in Done")).toBeVisible();
+    await expectNoAxeViolations(page, "Completed filter with tasks");
+  });
+
   test("create form error state is clean", async ({ page }) => {
     await page.goto("/");
     const form = createForm(page);

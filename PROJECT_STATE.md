@@ -4,36 +4,58 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: Phase 5 (CI enforcement) complete, `main`. Authoritative
+Last verified against repository: Phase 6 (task filtering) complete, `main`. Authoritative
 commit: see `git log -1`.
 
 ---
 
 ## 1. Current Phase
 
-**CI Enforcement** — Phase 5 of the task sequence complete. GitHub Actions now
-reproduces every local quality gate (install, Prisma generate, Next typegen,
-TypeScript, ESLint, L1+L2, production build, L3 with axe) in a clean
-environment. Phases 1–4 (test infrastructure, then the five verified defect
-fixes) are complete; what remains before any push is the remote decision
-(§10.6, §14).
+**Task Filtering** — Phase 6 of the task sequence complete. The task list can
+be filtered by completion status (`all` / `todo` / `done`) through URL search
+parameters, with the filtering performed by the database query. Phases 1–5
+(test infrastructure, defect fixes, CI enforcement) are complete; remaining
+V1 features are search, sort, and dashboard statistics (§8).
 
 ## 2. Current Milestone
 
-**Phase 5 — CI enforcement: COMPLETE and committed.** `.github/workflows/ci.yml`
-adds one GitHub Actions job running, in order: `npm ci` → `prisma generate` →
-`next typegen` → `typecheck` → `lint` → Vitest (L1+L2) → `next build` →
-Playwright Chromium install → the full L3 suite (including axe) → failure
-evidence upload. The design was rehearsed end to end in a clean checkout of
-the committed tree (`git archive` into a scratch directory) before the
-workflow was written; the rehearsal findings are recorded in §15. Remote
-execution has **not** been observed: the repository has no git remote, so the
-workflow is locally validated only (§14).
+**Phase 6 — Task filtering: COMPLETE and committed.**
 
-**Suite totals: 275 permanent tests (90 L1 + 76 L2 + 109 L3), all passing —
-with CI now in place to enforce them (remotely unobserved; §10.6, §14).**
+- **Contract:** three logical filter states — `all` (no status condition),
+  `todo` (status = TODO_STATUS), `done` (status = DONE_STATUS). The mapping is
+  defined once (`whereForFilter`) beside `INCOMPLETE_WHERE` and fails closed
+  on any non-contract runtime value. Membership is the `status` column itself:
+  the pre-existing half-completed row (status todo WITH a timestamp) stays in
+  the todo view — no second definition of "completed" was introduced.
+- **URL/state decision:** the filter is list/query state, so it lives in the
+  URL: bare `/` means All, `/?filter=todo` and `/?filter=done` are the
+  non-default views, and any other value — absent, typo, hostile string, or a
+  repeated parameter (array) — falls back to All. `parseTaskFilter` is the
+  single normalization point; the filter control is a link-based Server
+  Component (`aria-current`), giving refresh, Back/Forward, and bookmarkable
+  URLs with no client island.
+- **Count semantics: the remaining count stays global.**
+  `prisma.task.count(INCOMPLETE_WHERE)` reports the whole list's outstanding
+  work regardless of the active view, matching its original meaning; the L2
+  suite now pins that it is identical under all three filters.
+- **Empty states:** one per filter. The all view keeps "No tasks yet" verbatim;
+  filtered views say "No active tasks" / "No completed tasks" — the list is
+  not empty, the filter matches nothing.
+- **No migration, no schema change:** the pre-existing `@@index([status])`
+  serves the filtered query. CRUD actions were not modified.
 
-**The previous milestone — Phase 4 — fixed five demonstrated defects**, each
+**Suite totals after Phase 6: 318 permanent tests (97 L1 + 88 L2 + 133 L3).**
+The Phase 5 baseline was 275 (90 L1 + 76 L2 + 109 L3). While re-counting, the
+Phase 5 document's L2-actions figure was found to be off by two: the actions
+suite has 54 tests, not 56 (corrected in §11).
+
+**The previous milestone — Phase 5 — added CI enforcement:**
+`.github/workflows/ci.yml` reproduces every quality gate (install, Prisma
+generate, typegen, typecheck, lint, L1+L2, build, L3 with axe) in a clean
+environment, validated by a full clean-checkout rehearsal. Remote execution
+remains unobserved: the repository still has no git remote (§10.6, §14).
+
+**Earlier — Phase 4 — fixed five demonstrated defects**, each
 previously pinned by a permanent regression marker in the L2/L3 suites and now
 fixed at the source and re-pinned by tests of the corrected behaviour:
 
@@ -70,26 +92,57 @@ before any change was made.
 - All four mutations implemented and verified: create, edit, delete, complete/incomplete
 - All four task fields implemented: title, description, priority, due date —
   and a due date can now be added, replaced, *and cleared* through the edit form
+- **Filtering by completion status** (`all` / `todo` / `done`) via URL search
+  parameters, applied by the database query, with filter-aware empty states
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
-- **Permanent test suite: 275 tests (90 L1 + 76 L2 + 109 L3), all passing**,
-  each layer against its own dedicated disposable database — and now enforced
-  by CI (`.github/workflows/ci.yml`)
+- **Permanent test suite: 318 tests (97 L1 + 88 L2 + 133 L3), all passing**,
+  each layer against its own dedicated disposable database — and enforced by
+  CI (`.github/workflows/ci.yml`)
 - `test`, `e2e`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
 - **CI enforcement in the repository** (`.github/workflows/ci.yml`): one
   GitHub Actions job reproducing install, Prisma generate, typegen, typecheck,
   lint, L1+L2, the production build, and L3 with axe — validated locally
   against a clean checkout; not yet executed remotely (no remote)
 
-**Currently being developed:** nothing. Phase 5 is finished.
+**Currently being developed:** nothing. Phase 6 is finished.
 
-**Working tree:** clean at the Phase 5 commit.
+**Working tree:** clean at the Phase 6 commit.
 
-**Not yet built:** filter, search, sort, dashboard statistics (see §8).
+**Not yet built:** search, sort, dashboard statistics (see §8).
 Not yet decided: a git remote / first push (§10.6, §14).
 
 ## 4. Last Completed Milestone
 
-### Phase 5 — CI enforcement (current)
+### Phase 6 — Task filtering (current)
+
+Files touched: `constants.ts` (filter states), `validations/task.ts`
+(`parseTaskFilter`), `queries/tasks.ts` (typed filter + conditional where),
+`page.tsx` (searchParams), new `TaskFilterControl.tsx`, `TaskList.tsx`
+(filter-aware empty states), plus tests (`task.test.ts` L1,
+`tasks.test.ts` L2 queries, `task-ui.ts` helpers, new `task-filter.spec.ts`,
+two new axe scans in `accessibility.spec.ts`). No CRUD action was modified.
+
+| Aspect | Decision |
+|---|---|
+| Contract | `all` / `todo` / `done`; `todo`→`TODO_STATUS`, `done`→`DONE_STATUS`, `all`→no condition |
+| State location | URL search params: `/` (All), `/?filter=todo`, `/?filter=done`; no `/?filter=all` URL exists |
+| Normalization | `parseTaskFilter`: undefined→`all`; anything else validated; invalid → caller falls back to `all` (no error UI) |
+| Query shape | `whereForFilter` returns `{status}` or undefined; `where: undefined` is Prisma's no-condition (asserted by value at L2); fails closed on non-contract values |
+| Filter control | Server Component `<nav aria-label="Task filter">` with three links; active one carries `aria-current="true"` |
+| Empty states | Per-filter copy; all-view wording unchanged verbatim |
+| Count | Remaining count stays global under every filter (documented product decision) |
+| Membership | The `status` column; the half-completed todo row stays in the todo view (its timestamp drives `isComplete`, not membership) |
+| Index | Existing `@@index([status])`; no migration |
+
+Mutation audit (performed before commit, all reverted byte-identically):
+todo→done mapping swap caught by 6 L2 tests; filter condition removed caught
+by 5; URL normalization bypassed caught by 2 L3 tests; in-memory filtering
+caught by the spy test. (The audit itself produced one scare: an overly broad
+`git checkout --` during the first attempt reverted the whole uncommitted
+query file; it was restored from the authored content and re-verified, and
+the remaining mutations used file-copy restore with checksums.)
+
+### Phase 5 — CI enforcement (previous milestone)
 
 Scope was exactly: one workflow, one aggregate script, documentation. No
 application source file was touched.
@@ -198,16 +251,17 @@ semantics, and adds genuine containment, all local to the component:
 
 | Field | Value |
 |---|---|
-| Message | `ci: add automated quality gates` |
+| Message | `feat: add task filtering` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `2c4789b` (`fix: resolve verified accessibility and due date issues`) |
+| Parent | `035eb12` (`ci: add automated quality gates`) |
 | Branch | `main` |
 | Remotes | none configured (repo is local-only; CI has therefore never run remotely) |
 
-**Full history (12 commits, oldest last):**
+**Full history (13 commits, oldest last):**
 
 ```
-<this commit>  ci: add automated quality gates
+<this commit>  feat: add task filtering
+035eb12  ci: add automated quality gates
 2c4789b  fix: resolve verified accessibility and due date issues
 d066cfd  test: add browser E2E and accessibility suite
 c61abe7  test: add action and query integration tests
@@ -306,6 +360,7 @@ security/browser verification pass at the time of implementation.
 | Edit task | `updateTask` (`tasks.ts:159`), `TaskEditControl.tsx` |
 | Delete task | `deleteTask` (`tasks.ts:113`), `TaskDeleteControl.tsx` |
 | Complete / incomplete | `toggleTaskCompletion` (`tasks.ts:61`), `TaskCompletionButton.tsx` |
+| **Filter by status** | URL `?filter=todo\|done`, `parseTaskFilter` (`validations/task.ts`), `whereForFilter` + conditional `where` in `getTaskList`, `TaskFilterControl.tsx` |
 | Title (required) | `schema.prisma:12`; trimmed, 1–200 |
 | Description (optional) | `schema.prisma:13`; 0–2000 |
 | Priority | `constants.ts:1`; `low` / `medium` / `high` |
@@ -320,7 +375,7 @@ None of these are started. All are read-side additions to the query layer.
 
 | Feature | Notes |
 |---|---|
-| **Filter by status** | `getTaskList()` takes no params today. `Task_status_idx` and the `(status, dueDate)` composite index already exist and suit this query. |
+| ~~**Filter by status**~~ | **Shipped in Phase 6** via URL search params; `getTaskList()` now takes an optional validated filter and defaults to `all`. |
 | **Search** | No index can serve `LIKE '%term%'` in SQLite; will be a full scan. Needs FTS5 or an accepted cost decision. |
 | **Sort** | Ordering is currently fixed (`createdAt desc, id desc`). **No `priority` index exists** — add it when sort ships. |
 | **Dashboard statistics** | Only `remainingCount` exists. **Warning: this creates a *third* encoding of the completion rule** — see §9. |
@@ -418,6 +473,17 @@ reasoning.
     `--legacy-peer-deps` workaround was a live-install arborist bug (npm
     10.9.8) and must not be copied into CI — and Node is pinned to **22** to
     match the local toolchain rather than a blind "latest".
+
+16. **The URL filter is normalized by value, not by the status constants.**
+    `parseTaskFilter` accepts only the three logical states of `TASK_FILTERS`
+    (`all`/`todo`/`done`) — the database status constants are *not* filter
+    input, and the mapping onto them happens once inside the query layer
+    (`whereForFilter`), which fails closed on a non-contract value. Invalid
+    URLs fall back to the default All view rather than erroring: a stale
+    querystring is not a user mistake worth a page. The remaining count stays
+    global under every filter on purpose (see §4), and filter membership is
+    the `status` column itself — the half-completed todo row stays in the
+    todo view because its timestamp drives `isComplete`, not membership.
 
 ## 10. Known Issues
 
@@ -566,18 +632,23 @@ never proof of accessibility (see §11).
 **L1** pure validation unit tests · **L2** server-action + query-layer
 integration against real SQLite · **L3** Playwright E2E.
 
-### Permanent tests in the repository: **275** — 90 L1 + 76 L2 + 109 L3
+### Permanent tests in the repository: **318** — 97 L1 + 88 L2 + 133 L3
 
 | Suite | Tests | Database | Mocks |
 |---|---|---|---|
-| `src/lib/validations/task.test.ts` | 90 | none (pure) | none |
-| `src/actions/tasks.test.ts` | 56 | real SQLite | `next/cache` only |
-| `src/lib/queries/tasks.test.ts` | 22 | real SQLite | none |
+| `src/lib/validations/task.test.ts` | 97 | none (pure) | none |
+| `src/actions/tasks.test.ts` | 54 | real SQLite | `next/cache` only |
+| `src/lib/queries/tasks.test.ts` | 34 | real SQLite | none |
 | `e2e/task-crud.spec.ts` | 43 | real SQLite (e2e.db) | none — real browser |
+| `e2e/task-filter.spec.ts` | 22 | real SQLite (e2e.db) | none — real browser |
 | `e2e/keyboard-focus.spec.ts` | 18 | real SQLite (e2e.db) | none — real browser |
-| `e2e/accessibility.spec.ts` | 17 | real SQLite (e2e.db) | none — real browser |
+| `e2e/accessibility.spec.ts` | 19 | real SQLite (e2e.db) | none — real browser |
 | `e2e/responsive.spec.ts` | 11 | real SQLite (e2e.db) | none — real browser |
 | `e2e/database-safety.spec.ts` | 20 | reads e2e.db + dev.db | none |
+
+(The Phase 5 edition of this table said the actions suite had 56 tests; the
+correct figure, measured per file, is 54. The 275 total was right because the
+90/76/109 layer totals were right.)
 
 - Command: `npm test` (single run) · `npm run test:watch` (watch mode) ·
   `npm run test:all` (aggregate gate: typecheck → lint → test → build → e2e,
@@ -639,7 +710,9 @@ steps instead.
 **Proves:** the validation boundary produces the allowed shape — accepted and
 rejected payloads, the create-vs-update priority asymmetry, calendar-date rules
 that keep `dueDate` a `YYYY-MM-DD` string, the task-id contract, and that
-unrecognised or prototype-polluting keys never survive into a payload.
+unrecognised or prototype-polluting keys never survive into a payload. Since
+Phase 6 it also pins `parseTaskFilter`: the three logical states, undefined →
+default, and rejection of injection-shaped, status-like, and non-string values.
 
 **Does not prove:** that the database cannot be manipulated through protected
 fields. That is L2, and L2 now proves it.
@@ -651,10 +724,15 @@ fields. That is L2, and L2 now proves it.
 a client payload; the `Task not found` contract for update/toggle/delete;
 create-vs-update validation priority; title trimming; that `createdAt` survives
 an update while `updatedAt` advances; that completion is an *absolute* target
-state and is idempotent; that a second delete reports not found; that
-`getTaskList` returns exactly the six UI fields, orders by `createdAt desc,
+state and is idempotent; that a second delete reports not found; that  `getTaskList` returns exactly the six UI fields, orders by `createdAt desc,
 id desc` with the same tie-break, and that its SQL count agrees with its
-per-row `isComplete` flags across inconsistent rows.
+per-row `isComplete` flags across inconsistent rows. Since Phase 6 it also
+proves the filter contract: `all` sends no status condition (`where:
+undefined`, asserted by value), `todo`/`done` send the trusted status
+constants to Prisma (spy-verified, so the database — not the app — filters),
+ordering is preserved inside each filtered view, an unmatched filter resolves
+to an empty collection, and the remaining count is identical under all three
+filters.
 
 **Does not prove:** browser behavior. `revalidatePath` is mocked precisely
 *because* it cannot run outside a Next request — see §15. Whether the UI
@@ -814,35 +892,32 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-The remote/push decision. Phase 5 (CI enforcement) is complete and committed:
-.github/workflows/ci.yml reproduces every quality gate and was validated
-locally against a clean checkout of the committed tree. The repository still
-has NO git remote, so the workflow has never executed on GitHub Actions.
+The remaining V1 read-side features: SEARCH, SORT, or DASHBOARD STATISTICS
+(§8) — in whatever order the product decision ranks them. Phase 6 (filtering)
+is complete and committed; do not start another feature without explicit
+approval of the scope.
 
-The one thing that converts local validation into real enforcement is a
-remote and a push. That is an explicit product decision (the repo has always
-been local-only), not something to do silently:
+Notes each successor phase should read first:
+  - Search (§8): no index can serve LIKE '%term%'; FTS5 or an accepted full-
+    scan cost decision is required first. Do not bolt it onto `?filter=`;
+    decide the URL contract deliberately.
+  - Sort (§8): ordering is fixed in `getTaskList` (`createdAt desc, id desc`);
+    a `priority` index must be added when sort ships (migration required).
+  - Statistics (§8): would create a THIRD encoding of the completion rule
+    alongside `INCOMPLETE_WHERE` and `isIncomplete()` — the §9 warning and
+    the Phase 6 filter mapping now make FOUR places that encode reading
+    completion state; keep them consistent or refactor deliberately.
 
-  - If the decision is YES: create the remote, push main, watch the first
-    `quality-gates` run end to end, and only then claim CI enforcement is
-    real. Note the runtime: the rehearsal took ~6.5 minutes cold for L3 on a
-    machine with nothing cached; a GitHub runner will differ.
-  - If the decision is NO: the workflow sits ready in the tree and the
-    enforcement gap (§10.6) stays documented.
-
-After that, tooling cleanup is the remaining loose end: `tsx` is installed
-and unused (§10.17, §12) and should go in a dedicated tooling PR.
+Also still open, unchanged: the remote/push decision (§10.6) — CI has never
+executed remotely — and the `tsx` cleanup (§12).
 
 Constraints:
   - Do NOT create a remote, push, or share credentials as a side effect of
-    other work; it is a decision for the repository owner.
-  - Do NOT weaken the database gates (tests/setup/database-env.ts,
-    e2e/lib/e2e-database.ts) to make CI simpler; they already work in CI's
-    favor.
-  - Do NOT add Dependabot, release automation, deployment workflows, or a
-    second CI provider.
-  - Do NOT start filter, search, sort, dashboard statistics, or any other V1
-    feature.
+    other work.
+  - Do NOT weaken the database gates or the axe allowlist.
+  - Do NOT add search/sort/statistics piecemeal without deciding the URL
+    contract for list state first (the filter set the precedent: one
+    validated parameter, canonical URLs, invalid falls back to default).
 
 Verify before committing anything further: npm test, npm run e2e,
 npm run typecheck, npm run lint, npm run build — or the aggregate
@@ -1157,6 +1232,38 @@ works (the field group is keyed on the created id) and is still asserted.
   `document-title` flake it fixes was real at roughly 1 run in 3.
 - The axe allowlist is empty. Resist adding to it. If axe reports something,
   the fix belongs in the application.
+
+### Phase 6 handoff notes (new)
+
+- **The URL contract is one validated parameter, and invalid means default.**
+  `parseTaskFilter` treats `undefined` as `all` (not an error) and rejects
+  everything else, so the page falls back to All for typos, hostile strings,
+  AND repeated parameters (which Next delivers as an array — asserted at L3).
+  Do not "improve" this to a 422 page: a stale querystring is not a user
+  mistake.
+- **Filter membership is the status column, full stop.** The L2 dataset
+  deliberately includes a half-completed todo row (status todo WITH a
+  completion timestamp) and an unknown status, pinning that `todo` membership
+  follows `status` while `isComplete` follows the two-field rule. If anyone
+  ever "fixes" the todo filter to also check `completedAt: null`, these tests
+  will fail — that change would be a second definition of completed and needs
+  a deliberate contract decision, not a drive-by.
+- **The spy test is the in-memory-filter guard.** It asserts `findMany` was
+  called once WITH `{ status: TODO_STATUS }` (mutation-audited), and the all
+  case asserts `where` is undefined BY VALUE — the key is always present
+  (`Object.hasOwn` is true), the Phase 1 lesson in its inverse form.
+- **Two process lessons from this phase, both self-inflicted:** (1) a spec
+  without an explicit `page.goto` in its `beforeEach` sits on `about:blank`
+  and times out on the first locator — the fixtures provide the console gate
+  and DB reset, NOT navigation; the 0-byte `trace.network` file was the tell.
+  (2) `git checkout -- <file>` during the mutation audit reverted the whole
+  uncommitted feature file, not just the mutation. The restored protocol:
+  copy the pristine file to /tmp first, mutate, restore by copy, verify by
+  checksum. Never use checkout to undo a mutation on uncommitted work.
+- **Environment note:** name-based `pkill -f "next start"` kills the invoking
+  shell itself (its own command line matches); kill the `next-server` pid from
+  `ss -ltnp` instead. An interrupted Playwright run leaves its webServer
+  holding port 3100 (`reuseExistingServer: false` then blocks every retry).
 
 ### Phase 5 handoff notes (new)
 

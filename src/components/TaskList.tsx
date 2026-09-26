@@ -1,11 +1,14 @@
 import { TaskCompletionButton } from "@/components/TaskCompletionButton";
 import { TaskDeleteControl } from "@/components/TaskDeleteControl";
 import { TaskEditControl } from "@/components/TaskEditControl";
+import type { TaskFilter } from "@/lib/constants";
 import type { TaskListItem } from "@/lib/queries/tasks";
 
 type TaskListProps = {
   tasks: TaskListItem[];
   remainingCount: number;
+  /** Which view the rows were filtered to; selects the empty state. */
+  activeFilter: TaskFilter;
 };
 
 type PriorityBadge = {
@@ -39,7 +42,11 @@ function badgeFor(priority: string): PriorityBadge {
   return { label: priority, className: NEUTRAL_BADGE };
 }
 
-export function TaskList({ tasks, remainingCount }: TaskListProps) {
+export function TaskList({
+  tasks,
+  remainingCount,
+  activeFilter,
+}: TaskListProps) {
   return (
     <section aria-labelledby="task-list-heading" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -54,18 +61,40 @@ export function TaskList({ tasks, remainingCount }: TaskListProps) {
         </p>
       </div>
 
-      {tasks.length === 0 ? <EmptyState /> : <TaskItems tasks={tasks} />}
+      {tasks.length === 0 ? <EmptyState filter={activeFilter} /> : <TaskItems tasks={tasks} />}
     </section>
   );
 }
 
-function EmptyState() {
+/**
+ * One empty state per filter. The all view keeps the original wording
+ * verbatim; the filtered views must not say "No tasks yet" — the list is
+ * not empty, the current filter simply matches nothing.
+ */
+const EMPTY_STATES: Record<TaskFilter, { title: string; detail: string }> = {
+  all: {
+    title: "No tasks yet",
+    detail:
+      "Use the form above to add your first task and it will appear here.",
+  },
+  todo: {
+    title: "No active tasks",
+    detail:
+      "Nothing is waiting to be done. Create a task above, or switch to All to see everything.",
+  },
+  done: {
+    title: "No completed tasks",
+    detail: "Mark a task complete and it will appear here.",
+  },
+};
+
+function EmptyState({ filter }: { filter: TaskFilter }) {
+  const empty = EMPTY_STATES[filter];
+
   return (
     <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center">
-      <p className="text-sm font-medium text-zinc-800">No tasks yet</p>
-      <p className="mt-1 text-sm text-zinc-600">
-        Use the form above to add your first task and it will appear here.
-      </p>
+      <p className="text-sm font-medium text-zinc-800">{empty.title}</p>
+      <p className="mt-1 text-sm text-zinc-600">{empty.detail}</p>
     </div>
   );
 }

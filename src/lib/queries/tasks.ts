@@ -1,4 +1,10 @@
-import { TODO_STATUS, type DateOnly } from "@/lib/constants";
+import {
+  DEFAULT_TASK_FILTER,
+  DONE_STATUS,
+  TODO_STATUS,
+  type DateOnly,
+  type TaskFilter,
+} from "@/lib/constants";
 import { prisma } from "@/lib/db";
 
 /**
@@ -45,7 +51,44 @@ function isIncomplete(task: CompletionFields): boolean {
   return task.status === TODO_STATUS && task.completedAt === null;
 }
 
-export async function getTaskList(): Promise<TaskListData> {
+/**
+ * Maps a validated logical filter onto the completion model, and only onto it.
+ *
+ * The three states are the entire input surface: nothing a client can send
+ * becomes an arbitrary Prisma condition. `todo` and `done` translate to the
+ * trusted status constants, and `all` means no status condition at all —
+ * which is exactly the query the list ran before filtering existed.
+ *
+ * The mapping lives beside {@link INCOMPLETE_WHERE} because it is the second
+ * place the application's completion model is used to read the database: the
+ * same `status` + `completedAt` pair, written as a read condition instead of
+ * the count condition.
+ */
+function whereForFilter(filter: TaskFilter): { status: string } | undefined {
+  switch (filter) {
+    case "todo":
+      return { status: TODO_STATUS };
+    case "done":
+      return { status: DONE_STATUS };
+    case "all":
+      return undefined;
+    default: {
+      // Unreachable for a caller honouring the TaskFilter type; reachable if
+      // an unvalidated runtime value is ever cast into this function. Failing
+      // closed here means a hostile value can never degrade into a query —
+      // not even the unfiltered one.
+      const unhandled: never = filter;
+
+      throw new Error(`Unhandled task filter: ${String(unhandled)}`);
+    }
+  }
+}
+
+export async function getTaskList(
+  filter: TaskFilter = DEFAULT_TASK_FILTER,
+): Promise<TaskListData> {
+  const where = whereForFilter(filter);
+
   const [rows, remainingCount] = await Promise.all([
     prisma.task.findMany({
       select: {
@@ -57,10 +100,13 @@ export async function getTaskList(): Promise<TaskListData> {
         status: true,
         completedAt: true,
       },
+      where,
       // Newest first. `id` breaks ties so tasks created within the same
       // millisecond still render in a stable, newest-first order.
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     }),
+    // The remaining count is global by design: it reports the whole list's
+    // outstanding work, not the active slice. See PROJECT_STATE.md §9.
     prisma.task.count({ where: INCOMPLETE_WHERE }),
   ]);
 

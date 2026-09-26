@@ -32,6 +32,50 @@ export function remainingCount(page: Page): Locator {
   return page.getByText(/^\d+ tasks? remaining$/);
 }
 
+/** The filter navigation, found by its accessible name. */
+export function filterNav(page: Page): Locator {
+  return page.getByRole("navigation", { name: "Task filter" });
+}
+
+/** One filter option link by its visible label (All / Active / Completed). */
+export function filterLink(page: Page, label: "All" | "Active" | "Completed"): Locator {
+  return filterNav(page).getByRole("link", { name: label, exact: true });
+}
+
+/**
+ * Clicks a filter option and waits for the URL to carry it.
+ *
+ * The wait is on the URL, not on content: the list re-render is the server
+ * round-trip the link click triggers, and the URL is the thing the router
+ * updates first.
+ */
+export async function applyFilter(
+  page: Page,
+  label: "All" | "Active" | "Completed",
+): Promise<void> {
+  await filterLink(page, label).click();
+
+  if (label === "All") {
+    await expect(page).toHaveURL(/\/$/);
+
+    return;
+  }
+
+  const expected =
+    label === "Active" ? "filter=todo" : "filter=done";
+  await expect(page).toHaveURL(new RegExp(`\\?${expected}$`));
+}
+
+/** Whether a filter option is marked as the current one. */
+export async function isFilterActive(
+  page: Page,
+  label: "All" | "Active" | "Completed",
+): Promise<boolean> {
+  return filterLink(page, label).evaluate(
+    (element) => element.getAttribute("aria-current") === "true",
+  );
+}
+
 export function titleInput(scope: Locator): Locator {
   return scope.getByLabel("Title");
 }

@@ -5,6 +5,21 @@ export const DEFAULT_PRIORITY = "medium";
 export const TODO_STATUS = "todo";
 
 /**
+ * The three logical states the task list can be filtered to. Read-side only:
+ * these are view categories, not database values. The query layer maps them
+ * onto the status constants above — `todo` and `done` translate to
+ * {@link TODO_STATUS} and {@link DONE_STATUS}, and `all` means no status
+ * condition at all — so a client-supplied filter value can never become an
+ * arbitrary Prisma condition.
+ */
+export const TASK_FILTERS = ["all", "todo", "done"] as const;
+
+export type TaskFilter = (typeof TASK_FILTERS)[number];
+
+/** The filter used when the URL carries none, or one the contract rejects. */
+export const DEFAULT_TASK_FILTER: TaskFilter = "all";
+
+/**
  * Terminal status paired with a non-null `completedAt`. The schema stores
  * `status` as a free-form string and nothing in the project pinned a completed
  * value, so this constant is the single source of truth for it. It must stay
