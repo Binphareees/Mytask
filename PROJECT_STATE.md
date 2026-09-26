@@ -4,27 +4,38 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: Phase 4 (defect fixes) complete, `main`. Authoritative
+Last verified against repository: Phase 5 (CI enforcement) complete, `main`. Authoritative
 commit: see `git log -1`.
 
 ---
 
 ## 1. Current Phase
 
-**Verified Defect Fixes** — Phase 4 of the task sequence complete. The five
-previously demonstrated defects (three accessibility, one focus-containment,
-one data contract) are fixed, re-tested, and committed. The five-phase testing
-plan from Phases 1–3 (unit / integration / E2E infrastructure) was already
-complete; CI enforcement remains the top open item (see §14).
+**CI Enforcement** — Phase 5 of the task sequence complete. GitHub Actions now
+reproduces every local quality gate (install, Prisma generate, Next typegen,
+TypeScript, ESLint, L1+L2, production build, L3 with axe) in a clean
+environment. Phases 1–4 (test infrastructure, then the five verified defect
+fixes) are complete; what remains before any push is the remote decision
+(§10.6, §14).
 
 ## 2. Current Milestone
 
-**Phase 4 — Fix verified accessibility defects + due-date clearing: COMPLETE
-and committed.**
+**Phase 5 — CI enforcement: COMPLETE and committed.** `.github/workflows/ci.yml`
+adds one GitHub Actions job running, in order: `npm ci` → `prisma generate` →
+`next typegen` → `typecheck` → `lint` → Vitest (L1+L2) → `next build` →
+Playwright Chromium install → the full L3 suite (including axe) → failure
+evidence upload. The design was rehearsed end to end in a clean checkout of
+the committed tree (`git archive` into a scratch directory) before the
+workflow was written; the rehearsal findings are recorded in §15. Remote
+execution has **not** been observed: the repository has no git remote, so the
+workflow is locally validated only (§14).
 
-Five defects, each previously demonstrated by a permanent regression marker in
-the L2/L3 suites, are now fixed at the source and re-pinned by tests of the
-corrected behaviour:
+**Suite totals: 275 permanent tests (90 L1 + 76 L2 + 109 L3), all passing —
+with CI now in place to enforce them (remotely unobserved; §10.6, §14).**
+
+**The previous milestone — Phase 4 — fixed five demonstrated defects**, each
+previously pinned by a permanent regression marker in the L2/L3 suites and now
+fixed at the source and re-pinned by tests of the corrected behaviour:
 
 1. **Create-form validation no longer mounts multiple assertive live regions.**
    Field errors are plain text associated via `aria-describedby`; the single
@@ -61,21 +72,51 @@ before any change was made.
   and a due date can now be added, replaced, *and cleared* through the edit form
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
 - **Permanent test suite: 275 tests (90 L1 + 76 L2 + 109 L3), all passing**,
-  each layer against its own dedicated disposable database
+  each layer against its own dedicated disposable database — and now enforced
+  by CI (`.github/workflows/ci.yml`)
 - `test`, `e2e`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
+- **CI enforcement in the repository** (`.github/workflows/ci.yml`): one
+  GitHub Actions job reproducing install, Prisma generate, typegen, typecheck,
+  lint, L1+L2, the production build, and L3 with axe — validated locally
+  against a clean checkout; not yet executed remotely (no remote)
 
-**Currently being developed:** nothing. Phase 4 is finished; CI enforcement
-(§14) has not begun.
+**Currently being developed:** nothing. Phase 5 is finished.
 
-**Working tree:** clean at the Phase 4 commit.
+**Working tree:** clean at the Phase 5 commit.
 
-**Not yet built:** filter, search, sort, dashboard statistics (see §8), and
-CI enforcement (§11, §14).
+**Not yet built:** filter, search, sort, dashboard statistics (see §8).
+Not yet decided: a git remote / first push (§10.6, §14).
 
 ## 4. Last Completed Milestone
 
-**Phase 4 — the five verified defect fixes.** Production changes were limited
-to seven files; tests changed only to express/freeze the corrected behaviour.
+### Phase 5 — CI enforcement (current)
+
+Scope was exactly: one workflow, one aggregate script, documentation. No
+application source file was touched.
+
+| Aspect | Decision |
+|---|---|
+| Provider | GitHub Actions (none existed before) |
+| Workflow | `.github/workflows/ci.yml`, single job `quality-gates` |
+| Triggers | `push` to `main`, every `pull_request`; cancel-in-progress per ref |
+| Node | **22**, matching the local v22.23.2 toolchain (§15 records why) |
+| Install | `npm ci`, **no flags** — verified clean against the lockfile (§15) |
+| Tooling env | `DATABASE_URL` exported only for `prisma generate` / `next typegen` / `next build`, pointing at `.test/db/tooling.db`; deliberately **never set at job level** |
+| Test DBs | Unchanged: the L2 gate assigns `.test/db/integration.db` itself; L3 uses `.test/db/e2e.db` via the Playwright config; both built with `prisma migrate deploy` from the existing migrations |
+| Playwright | `npx playwright install --with-deps chromium` — the one browser the suite uses |
+| Artifacts | `.test/report/` + `test-results/` on failure only, 7-day retention |
+| New script | `test:all` (typecheck → lint → test → build → e2e); nothing renamed |
+
+The full pipeline was rehearsed in a scratch checkout of the committed tree
+before the workflow was written — `npm ci` 578 packages exit 0, generate,
+typegen, typecheck, lint, Vitest 166/166, build, Chromium, Playwright 109/109
+(6.4m cold). After writing it, every gate was re-run in the real checkout and
+`dev.db` was verified byte-identical with unchanged mtime.
+
+### Phase 4 — the five verified defect fixes (previous milestone)
+
+Production changes were limited to seven files; tests changed only to
+express/freeze the corrected behaviour.
 
 ### Due-date clearing contract (the data-contract fix)
 
@@ -157,16 +198,17 @@ semantics, and adds genuine containment, all local to the component:
 
 | Field | Value |
 |---|---|
-| Message | `fix: resolve verified accessibility and due date issues` |
+| Message | `ci: add automated quality gates` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `d066cfd` (`test: add browser E2E and accessibility suite`) |
+| Parent | `2c4789b` (`fix: resolve verified accessibility and due date issues`) |
 | Branch | `main` |
-| Remotes | none configured (repo is local-only) |
+| Remotes | none configured (repo is local-only; CI has therefore never run remotely) |
 
-**Full history (11 commits, oldest last):**
+**Full history (12 commits, oldest last):**
 
 ```
-<this commit>  fix: resolve verified accessibility and due date issues
+<this commit>  ci: add automated quality gates
+2c4789b  fix: resolve verified accessibility and due date issues
 d066cfd  test: add browser E2E and accessibility suite
 c61abe7  test: add action and query integration tests
 396d936  test: add permanent validation tests
@@ -269,6 +311,7 @@ security/browser verification pass at the time of implementation.
 | Priority | `constants.ts:1`; `low` / `medium` / `high` |
 | Due date (optional) | `schema.prisma:16`; calendar date `YYYY-MM-DD`; editable as add / replace / explicit clear |
 | SQLite persistence | 2 migrations, adapter pattern, singleton in `db.ts` |
+| CI enforcement (Phase 5) | `.github/workflows/ci.yml`; single job, `npm ci` (no flags), Node 22, per-step safe `DATABASE_URL` for tooling, failure-only artifacts |
 | Responsive UI | `flex-wrap` + `basis-full`; `sm:` breakpoints throughout |
 
 ## 8. Remaining V1 Features
@@ -362,6 +405,20 @@ reasoning.
     share markup without turning `TaskForm` into a mode-switching component.
     IDs are namespaced via `idPrefix` because both forms can be mounted at once.
 
+15. **CI exports `DATABASE_URL` per tooling step, never at job level.** *Why:*
+    `prisma.config.ts` resolves `env("DATABASE_URL")` at load time — `prisma
+    generate` fails without it even though generation touches no database —
+    and a fresh checkout also needs `next typegen` before `tsc`
+    (`LayoutProps<"/">` is generated code). But the L2 and E2E database gates
+    both *require* the ambient value to be unset or exactly their own file, so
+    a job-wide export would hard-fail the very suites it was meant to help.
+    Per-step export to `.test/db/tooling.db` gives the tooling a safe value and
+    leaves the test gates self-governing. Two related decisions: `npm ci` runs
+    with **no flags** — verified clean against the lockfile; the Phase 1
+    `--legacy-peer-deps` workaround was a live-install arborist bug (npm
+    10.9.8) and must not be copied into CI — and Node is pinned to **22** to
+    match the local toolchain rather than a blind "latest".
+
 ## 10. Known Issues
 
 ### FIXED in Phase 4 (history retained)
@@ -423,9 +480,16 @@ never proof of accessibility (see §11).
    instructions that cannot apply to a SQLite app. It documents none of this
    project's architecture or invariants.
 
-6. **No CI and no git remote.** `git remote` is empty. `typecheck`, `lint`,
-   `test`, and `build` are manual only, so nothing prevents a broken commit.
-   This is the top remaining item — see §14.
+6. **No git remote — and, since Phase 5, no enforced gate has actually run remotely.**
+   `git remote` is empty. The CI workflow exists and was validated locally
+   (syntax, structure, and a full clean-checkout rehearsal of every step), but
+   it has **never executed on GitHub Actions** because nothing has ever been
+   pushed. Creating a remote and pushing is an explicit decision (§12), and
+   until it is made, the enforcement claim rests on the local rehearsal alone.
+   Expected first-run risks, each rehearsed and mitigated: the ubuntu runner
+   installs the browser's system dependencies (`--with-deps`), and the
+   `prisma.config.ts` env resolution failure is prevented by exporting a safe
+   `DATABASE_URL` for the tooling steps.
 
 7. **`status` and `priority` are unconstrained TEXT columns** (`schema.prisma:14-15`).
    No enum, no `CHECK`. Largely forced — Prisma does not support `enum` on
@@ -446,7 +510,8 @@ never proof of accessibility (see §11).
     validation-failure and superseded submissions. Measured and documented in
     `e2e/fixtures.ts`: the POST completes with HTTP 200 first and the UI state
     is correct; Chromium reporting that React stopped reading a response it had
-    already applied. Still allowlisted, still never seen on a successful create.
+    already applied. Still allowlisted (the CI workflow does not alter it),
+    still never seen on a successful create.
 
 ### DEFERRED / ACCEPTED TECHNICAL DEBT
 
@@ -514,7 +579,9 @@ integration against real SQLite · **L3** Playwright E2E.
 | `e2e/responsive.spec.ts` | 11 | real SQLite (e2e.db) | none — real browser |
 | `e2e/database-safety.spec.ts` | 20 | reads e2e.db + dev.db | none |
 
-- Command: `npm test` (single run) · `npm run test:watch` (watch mode).
+- Command: `npm test` (single run) · `npm run test:watch` (watch mode) ·
+  `npm run test:all` (aggregate gate: typecheck → lint → test → build → e2e,
+  the sequence CI runs).
 - Config: `vitest.config.mts` — `environment: "node"`,
   `include: ["src/**/*.test.ts"]`, aliases `@` → `./src` and `@tests` →
   `./tests`, `setupFiles: ["tests/setup/database-env.ts"]`, and
@@ -552,7 +619,11 @@ DATABASE_URL=file:./production.db-> REFUSING TO RUN L2 TESTS
 `.test/` is git-ignored and disposable; deleting it and re-running recreates and
 re-migrates the database from scratch. `dev.db` was verified byte-identical
 (md5 `3a8be6b55df5e79d2510cf82d47ab3a3`, **mtime unchanged**, so it was never
-even opened for write) after every Phase 2 run.
+even opened for write) after every Phase 2 run. **CI preserves this design
+rather than replacing it**: the workflow sets no job-level `DATABASE_URL`, so
+the gate still assigns the database itself and still hard-fails on an unsafe
+ambient value; see §9.15 for why per-step export was required for the tooling
+steps instead.
 
 ### Test isolation and determinism
 
@@ -604,7 +675,10 @@ boots `next build && prisma migrate deploy && next start` on port 3100 and point
   *exactly* — a merely "safe-looking" path is refused, because otherwise the
   server and the tests would silently work on two different files.
   `e2e/database-safety.spec.ts` proves the outcome end to end: a task created in
-  the browser lands in `e2e.db` and the `dev.db` task count is unchanged.
+  the browser lands in `e2e.db` and the `dev.db` task count is unchanged. That
+  test tolerates `dev.db` being absent — its counter returns `-1` for a missing
+  file — so it is meaningful in a fresh CI checkout where `dev.db` does not
+  exist at all (verified in the Phase 5 clean-checkout rehearsal).
 - **Isolation.** A `cleanDatabase` auto-fixture empties the task table before
   every test, so specs are order-independent.
 - **Strict console gate.** Uncaught page errors, `console.error`, failed
@@ -688,8 +762,9 @@ remains the only coverage that class of defect has.
 
 - **Chromium only.** No Firefox or WebKit project, and no mobile-browser project;
   responsive coverage changes the viewport, not the engine.
-- **No CI, so `test` / `e2e` / `typecheck` / `lint` are still unenforced** (§10.6).
-  This is the highest-value remaining item.
+- **No remote, so CI has never actually run.** The workflow is committed and
+  locally validated, but `git remote` is empty — the first real gate execution
+  happens at the first push (§10.6, §14).
 - The Phase 3 regression markers for the §10 accessibility defects and the
   due-date bug have been **inverted into tests of the fixed behaviour**; the
   names now describe the fix, and their comments preserve the original
@@ -709,12 +784,12 @@ Deliberately postponed. **Do not add these without explicit approval.**
 | Subtasks, Kanban | Out of V1. |
 | Bulk actions, CSV export | Out of V1. |
 | PWA | Out of V1. |
-| CI | Deferred, but see §10.7 — highest-value cheap win. |
+| CI | ~~Deferred~~ **Done in Phase 5** — `.github/workflows/ci.yml` (§4). Remote execution still pending the remote decision (§10.6). |
 | `priority` index | Add when sort ships; irrelevant at current scale. |
 | FTS / search index | Decide when search ships. |
 | Server log redaction | Before any hosted deployment. |
 | Multi-step `dueDate` (times, reminders) | Not in V1. |
-| `tsx` | **Unused**; removal deferred through three phases. Do it in the CI-enforcement phase or a dedicated tooling PR. |
+| `tsx` | **Unused**; removal deferred through four phases. Deliberately **not** removed in Phase 5: the phase's scope was CI only. A dedicated tooling PR remains the right place. |
 
 ## 13. Current Constraints
 
@@ -739,43 +814,39 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-Implement CI ENFORCEMENT of the permanent suite (the item formerly labelled
-"testing Phase 4"; the defect-fix work just completed took the Phase 4 label,
-so refer to this as the CI phase to avoid ambiguity).
+The remote/push decision. Phase 5 (CI enforcement) is complete and committed:
+.github/workflows/ci.yml reproduces every quality gate and was validated
+locally against a clean checkout of the committed tree. The repository still
+has NO git remote, so the workflow has never executed on GitHub Actions.
 
-Phase 4 (defect fixes) is complete and committed. CI has NOT been started.
+The one thing that converts local validation into real enforcement is a
+remote and a push. That is an explicit product decision (the repo has always
+been local-only), not something to do silently:
 
-All three testing layers now exist and pass locally: 275 tests
-(90 L1 + 76 L2 + 109 L3), plus typecheck, lint and build.
+  - If the decision is YES: create the remote, push main, watch the first
+    `quality-gates` run end to end, and only then claim CI enforcement is
+    real. Note the runtime: the rehearsal took ~6.5 minutes cold for L3 on a
+    machine with nothing cached; a GitHub runner will differ.
+  - If the decision is NO: the workflow sits ready in the tree and the
+    enforcement gap (§10.6) stays documented.
 
-The reason this phase exists (§10.6): nothing enforces any of it.
-`git remote` is empty, `test` / `e2e` / `typecheck` / `lint` are manual only,
-and the L2 database safety gate in tests/setup/database-env.ts protects a
-developer's machine while doing nothing in CI, where the real risk differs.
-
-Things the CI phase must get right:
-  - Decide the CI provider and pin the Node version to match the local toolchain.
-  - Install Playwright's browser with dependencies in the CI image; a bare
-    `npx playwright install` is not enough on Linux.
-  - Keep L1/L2 and L3 in separate jobs. L3 builds the app and boots a server,
-    so it is minutes rather than seconds; do not serialise everything behind it.
-  - Reproduce the E2E database safety story in CI: a fresh checkout has no
-    .test/db/e2e.db, and the suite creates it from the existing migrations.
-  - Make `dev.db` protection explicit in CI, where there is no developer .env
-    to accidentally point at.
-
-Then tooling cleanup: `tsx` is installed and unused (§10.17) and can go once
-CI lands.
+After that, tooling cleanup is the remaining loose end: `tsx` is installed
+and unused (§10.17, §12) and should go in a dedicated tooling PR.
 
 Constraints:
-  - Do NOT redesign the Phase 4 fixes. If a fix's behaviour needs to change,
-    update its tests with the same care documented in §4.
-  - Do NOT add a git remote or push anything unless explicitly asked.
-  - Do NOT weaken the E2E database guard in e2e/lib/e2e-database.ts. It
-    hard-fails on import by design.
+  - Do NOT create a remote, push, or share credentials as a side effect of
+    other work; it is a decision for the repository owner.
+  - Do NOT weaken the database gates (tests/setup/database-env.ts,
+    e2e/lib/e2e-database.ts) to make CI simpler; they already work in CI's
+    favor.
+  - Do NOT add Dependabot, release automation, deployment workflows, or a
+    second CI provider.
+  - Do NOT start filter, search, sort, dashboard statistics, or any other V1
+    feature.
 
-Verify before committing: npm test, npm run e2e, npm run typecheck,
-npm run lint, npm run build. Then update this file and make ONE commit.
+Verify before committing anything further: npm test, npm run e2e,
+npm run typecheck, npm run lint, npm run build — or the aggregate
+`npm run test:all`.
 ```
 
 **Update this section whenever the project moves to a new milestone.**
@@ -1086,6 +1157,50 @@ works (the field group is keyed on the created id) and is still asserted.
   `document-title` flake it fixes was real at roughly 1 run in 3.
 - The axe allowlist is empty. Resist adding to it. If axe reports something,
   the fix belongs in the application.
+
+### Phase 5 handoff notes (new)
+
+**The clean-checkout rehearsal is the reason the workflow can be trusted** —
+and the method to repeat when CI changes. `git archive HEAD | tar -x` into a
+scratch directory reproduces exactly what `actions/checkout` delivers: tracked
+files only, no `.env`, no `dev.db`, no `node_modules`, no `.test/`. Every
+workflow step was run there before the YAML was written. Findings, all of
+which shaped the design:
+
+- **`npm ci` is clean with no flags** (exit 0, 578 packages, ~39s). The Phase 1
+  `--legacy-peer-deps` episode was `npm install -D <pkg>` hitting an arborist
+  peer-set bug on npm 10.9.8 — a *resolution* problem. `npm ci` resolves
+  nothing; it materialises the lockfile. Do not encode the flag into CI even
+  if some future live install needs it locally.
+- **`prisma generate` fails without `DATABASE_URL`** —
+  `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL` —
+  because `prisma.config.ts` calls `env("DATABASE_URL")` at load time.
+  Generation never touches a database, but the config demands one anyway.
+- **Typecheck fails on a fresh checkout until `next typegen` runs**:
+  `src/app/layout.tsx` uses `LayoutProps<"/">`, which is generated. Insert
+  `next typegen` between generate and typecheck; a full build first would also
+  work but costs minutes instead of seconds.
+- **L3 passes with `dev.db` absent** — the isolation test's counter returns -1
+  for a missing file, so the fresh-checkout case is already meaningful. No
+  CI-specific workaround was needed or added.
+- **No job-level `DATABASE_URL`** — with the variable unset, the L2 suite ran
+  green in the rehearsal (the setup file assigns `integration.db`), and the
+  Playwright gates accept an unset ambient value. Exporting a job-wide URL
+  would hard-fail both suites; that asymmetry is the core CI design (§9.15).
+- **`npx playwright install chromium`** (without `--with-deps`) *did* work on
+  this machine, but this machine's libraries are not a runner's; the workflow
+  uses `--with-deps`, which is the documented minimum for a Linux CI image.
+- **Chromium only, as configured.** No new browser projects were added to make
+  CI "more thorough" — that would change the suite, not enforce it.
+
+**The first real CI run is still unobserved.** No remote exists; nothing was
+created, asked for, or pushed. Expected first-run risks are named in §10.6.
+
+**Workflow-file hygiene.** `.github/` is not application source and is not
+linted as such — ESLint does not pick up YAML, and the workflow's `run:`
+blocks reference the existing npm scripts rather than reimplementing them.
+The one script added (`test:all`) is an aggregate of existing scripts; no
+existing script was renamed or changed.
 
 ### Environment note
 

@@ -1,0 +1,136 @@
+# Continuous integration for MyTask.
+#
+# Reproduces the local quality gates in a clean environment: dependency
+# install, Prisma client generation, TypeScript, ESLint, the Vitest suite
+# (L1 validation + L2 integration), the production build, and the full
+# Playwright E2E suite (L3, including the axe accessibility scans) against a
+# production-like `next build` + `next start` server.
+#
+# Database safety in CI mirrors the local story:
+#
+#   - The job level deliberately sets NO DATABASE_URL. The L2 Vitest setup
+#     (tests/setup/database-env.ts) computes its own dedicated
+#     .test/db/integration.db and hard-fails if the ambient value points
+#     anywhere unsafe, and the Playwright global setup (e2e/global-setup.ts)
+#     requires the ambient value to be absent or exactly its own
+#     .test/db/e2e.db. A job-wide DATABASE_URL would fail both gates.
+#   - The steps that genuinely need a DATABASE_URL (`prisma generate` requires
+#     one because prisma.config.ts reads env("DATABASE_URL") at load time, even
+#     though generation touches no database; `next typegen` and `next build`
+#     inherit it) point at .test/db/tooling.db — inside the disposable .test/
+#     directory, a file no test suite uses, and never dev.db.
+#   - No step runs `prigrate reset` or touches dev.db; test databases are
+#     built from the existing prisma/migrations with `prisma migrate deploy`.
+#     The committed database-safety tests keep proving isolation in CI.
+#
+# Node version: 22, matching the local toolchain (v22.23.2) and the project's
+# dependency set (@types/node ^20, Vitest 4, Prisma 7, Next.js 16). Do not
+# bump it silently; it is a deliberate decision, not a default.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gates:
+    name: install, verify, build, e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      # Keep Next.js telemetry noise out of the logs.
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The lockfile is the contract: `npm ci` installs exactly what
+      # package-lock.json pins. Verified clean against this lockfile (exit 0,
+      # no flags); the historical `npm install -D vitest` arborist crash
+      # (PROJECT_STATE §15, Phase 1) affected only live installs, not `npm ci`.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: file:$GITHUB_WORKSPACE/.test/db/tooling.db
+
+      # A fresh checkout has no generated Next.js route types; `LayoutProps<"/">`
+      # in src/app/layout.tsx only exists after typegen (or a full build), so
+      # typecheck must run after this step.
+      - name: Generate Next.js route types
+        run: npx next typegen
+        env:
+          DATABASE_URL: file:$GITHUB_WORKSPACE/.test/db/tooling.db
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # L1 + L2. No DATABASE_URL here: the Vitest setup file assigns the
+      # dedicated integration database itself and hard-fails if the ambient
+      # value would point anywhere unsafe. The schema is built from the
+      # existing migrations (tests/helpers/test-db.ts).
+      - name: Run unit and integration tests (Vitest)
+        run: npm test
+
+      # The production build. The page is force-dynamic so no page render
+      # touches the database at build time; the URL is set anyway so the step
+      # can never resolve to dev.db through .env or the db.ts fallback.
+      - name: Production build
+        run: npm run build
+        env:
+          DATABASE_URL: file:$GITHUB_WORKSPACE/.test/db/tooling.db
+
+      # The minimum required browser only: the suite runs Chromium and nothing
+      # else (playwright.config.ts). --with-deps installs the system libraries
+      # the browser needs on the runner.
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # L3. No DATABASE_URL here either: playwright.config.ts hands the
+      # dedicated .test/db/e2e.db to the server process it starts
+      # (`next build` + `prisma migrate deploy` + `next start`, never the dev
+      # server), and the global setup hard-fails unless the ambient value is
+      # unset or exactly that file. The mkdir is insurance so the migration
+      # never depends on an earlier step having created the directory.
+      - name: Run browser E2E and accessibility tests (Playwright)
+        run: |
+          mkdir -p .test/db
+          npm run e2e
+
+      # Failure evidence only: the HTML report (written to .test/report by
+      # playwright.config.ts) and the per-test failure artifacts (screenshots
+      # and traces, configured as only-on-failure / retain-on-failure). Not
+      # uploaded on successful runs. Contains no database files and no
+      # environment files — only what Playwright wrote during the run.
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-evidence
+          path: |
+            .test/report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

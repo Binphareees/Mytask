@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:all": "npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e",
     "e2e": "playwright test",
     "e2e:report": "playwright show-report .test/report",
     "e2e:build": "next build",
