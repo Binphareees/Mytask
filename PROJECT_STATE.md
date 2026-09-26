@@ -4,21 +4,21 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: testing Phase 2 complete, `main`. Authoritative
+Last verified against repository: testing Phase 3 complete, `main`. Authoritative
 commit: see `git log -1`.
 
 ---
 
 ## 1. Current Phase
 
-**Permanent Testing Infrastructure** — Phase 2 of 5 complete. The validation
-trust boundary *and* the server-action / query-layer data path are now covered
-by permanent tests. Phases 3–5 (browser E2E, accessibility, CI) are not
-started.
+**Permanent Testing Infrastructure** — Phase 3 of 5 complete. The validation
+trust boundary, the server-action / query-layer data path, *and* the real
+browser experience are now covered by permanent tests. Phases 4–5 (CI
+enforcement, cleanup) are not started.
 
 ## 2. Current Milestone
 
-**Phase 2 — L2 integration tests against a real, dedicated SQLite database:
+**Phase 3 — L3 browser E2E and accessibility tests against a production build:
 COMPLETE and committed.**
 
 - Approved test architecture: **Vitest** (unit/integration), **Playwright**
@@ -30,10 +30,14 @@ COMPLETE and committed.**
 **Phase 1 delivered:** Vitest 4.1.11, `vitest.config.mts`, `test` / `test:watch`
 scripts, and **84 permanent tests** in `src/lib/validations/task.test.ts`.
 
-**Phase 2 delivered:** **72 new permanent L2 tests** — 50 in
-`src/actions/tasks.test.ts` and 22 in `src/lib/queries/tasks.test.ts` — running
-against a dedicated `.test/db/integration.db` created by the existing
-migrations. Total suite: **156 tests.** No production file was modified.
+**Phase 2 delivered:** **72 permanent L2 tests** — 50 in
+`src/actions/tasks.test.ts` and 22 in `src/lib/queries/tasks.test.ts` — against a
+dedicated `.test/db/integration.db` created by the existing migrations.
+
+**Phase 3 delivered:** **104 permanent L3 tests** in `e2e/`, driving a real
+`next build` + `next start` server in Chromium through Playwright, with
+`@axe-core/playwright` scanning every application state. Total suite:
+**260 tests (84 L1 + 72 L2 + 104 L3).** No production file was modified.
 
 ## 3. Project Status
 
@@ -43,54 +47,69 @@ migrations. Total suite: **156 tests.** No production file was modified.
 - All four task fields implemented: title, description, priority, due date
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
 - Responsive UI (mobile + desktop)
-- **Permanent test suite: 156 tests (84 L1 + 72 L2), all passing**, against a
-  dedicated disposable test database for L2
-- `test`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
+- **Permanent test suite: 260 tests (84 L1 + 72 L2 + 104 L3), all passing**,
+  each layer against its own dedicated disposable database
+- `test`, `e2e`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
 
-**Currently being developed:** nothing. Phase 2 is finished; Phase 3 has not
+**Currently being developed:** nothing. Phase 3 is finished; Phase 4 has not
 begun.
 
-**Working tree:** clean at the Phase 2 commit.
+**Working tree:** clean at the Phase 3 commit.
 
-**Not yet built:** filter, search, sort, dashboard statistics (see §8), and all
-of testing Phases 3–5 (see §11).
+**Not yet built:** filter, search, sort, dashboard statistics (see §8), and
+testing Phases 4–5 (see §11).
 
 ## 4. Last Completed Milestone
 
-**Phase 2 — L2 integration tests for the server actions and query layer.**
+**Phase 3 — L3 browser E2E and accessibility tests against a production build.**
 
-Delivered: a dedicated, disposable test database (`.test/db/integration.db`)
-built by the existing migrations, a hard pre-import safety gate that refuses to
-run against any non-test database, and **72 permanent L2 tests** — 50 in
-`src/actions/tasks.test.ts`, 22 in `src/lib/queries/tasks.test.ts`.
+Delivered: **104 permanent L3 tests** in `e2e/`, driving a real `next build` +
+`next start` server in Chromium through Playwright, with `@axe-core/playwright`
+scanning every application state.
 
-The L2 suite runs the **real** Prisma client against **real** SQLite. The only
-mock in the entire suite is `next/cache`'s `revalidatePath`, which is a Next.js
-framework function that cannot execute outside a Next request context.
+- `e2e/task-crud.spec.ts` (39) — create, edit, complete/reopen, delete,
+  validation UX, and the `revalidatePath` → visible-refresh proof that L2 had to
+  mock.
+- `e2e/keyboard-focus.spec.ts` (17) — tab order, full keyboard operability, and
+  focus management. This is where the three confirmed defects in §10.1–3 are
+  verified, because none of them is detectable by axe.
+- `e2e/accessibility.spec.ts` (17) — axe across seven states, plus the semantics
+  axe does not check (live-region politeness, `aria-invalid` wiring, accessible
+  names, non-visual completion state).
+- `e2e/responsive.spec.ts` (11) — 375px and 1280px, asserting measured geometry:
+  no horizontal overflow, containment of unbreakable strings, and real tap-target
+  sizes.
+- `e2e/database-safety.spec.ts` (20) — tests for the database guard itself, plus
+  the end-to-end proof that a task created in the browser lands in `e2e.db` and
+  leaves `dev.db` untouched.
 
-Gates: **156/156 tests pass** (84 L1 + 72 L2), `typecheck` exit 0, `lint` exit
-0. `dev.db` verified byte-identical (md5 `3a8be6b55df5e79d2510cf82d47ab3a3`,
-mtime unchanged) after every run. The L2 suite was mutation-tested (§15) and
-caught 5 of 6 injected regressions, with the sixth explained as intentional
-defense-in-depth. No production file was modified.
+**All three of the open questions from Phases 1–2 are now answered by
+measurement** — see §15 Phase 3 handoff notes. The most consequential result is
+that **axe reports zero violations in every state while all three confirmed
+defects are present in the DOM**, which is why the behavioural suite is not
+redundant with the axe run.
 
-**Phase 2 found a real, previously unknown bug** — see §10.1 item 0: a due date
-cannot be cleared once set.
+Gates: **260/260 tests pass** (84 L1 + 72 L2 + 104 L3), `typecheck` exit 0,
+`lint` exit 0 with 0 warnings, `build` succeeds. `dev.db` verified byte-identical
+(md5 `3a8be6b55df5e79d2510cf82d47ab3a3`) across full runs. `git diff` confirms
+**no file under `src/` was modified** — the only tracked changes are
+`package.json`, `package-lock.json`, `eslint.config.mjs` and `.gitignore`.
 
 ## 5. Last Git Commit
 
 | Field | Value |
 |---|---|
-| Message | `test: add action and query integration tests` |
+| Message | `test: add browser E2E and accessibility suite` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `396d936765306a2378f251f017173b2dcc75b77c` (`test: add permanent validation tests`) |
+| Parent | `c61abe7` (`test: add action and query integration tests`) |
 | Branch | `main` |
 | Remotes | none configured (repo is local-only) |
 
-**Full history (9 commits, oldest last):**
+**Full history (10 commits, oldest last):**
 
 ```
-<this commit>  test: add action and query integration tests
+<this commit>  test: add browser E2E and accessibility suite
+c61abe7  test: add action and query integration tests
 396d936  test: add permanent validation tests
 d894b3b  feat: add task editing
 ae39904  feat: add task deletion
@@ -306,24 +325,55 @@ reasoning.
    `aria-live="assertive"` and interrupts, so screen-reader users hear the least
    useful message first, repeatedly.
 
+   **Phase 3 measured this: CONFIRMED, and quantified.** A rejected create with
+   one empty title mounts exactly **2 application-authored** assertive regions
+   inside the form, both `aria-live="assertive"`, announced least-useful-first.
+   A third match is **not** application code: Next.js injects
+   `#__next-route-announcer__` (`role="alert"`, `aria-live="assertive"`) because
+   the action revalidates the route. So `getByRole("alert")` returns 3, of which
+   2 are ours. Pinned by *"produces exactly two application live regions for one
+   invalid field"* and *"the errors are announced assertively, not politely"* in
+   `e2e/task-crud.spec.ts`. The count is scoped to the form on purpose so the
+   framework's own region is excluded rather than miscounted.
+
 2. **Delete `alertdialog` has no focus containment and no `aria-modal`.**
    `TaskDeleteControl.tsx:83` declares `role="alertdialog"` with correct
    `aria-labelledby`/`aria-describedby`, and focus is moved to Cancel on open and
    restored to the trigger on close — but Tab walks straight out into the page
    behind the open destructive dialog. No `aria-modal`, no focus trap.
 
+   **Phase 3 measured this: CONFIRMED.** `aria-modal` is absent, and from the
+   focused Cancel two Tabs reach Delete and a **third lands on a background
+   control with the dialog still open** — so a control behind a pending
+   destructive confirmation can be operated. Pinned by *"focus is NOT contained
+   while the confirmation is open (known bug)"* in
+   `e2e/keyboard-focus.spec.ts`. Note for whoever fixes it: adding
+   `aria-modal="true"` alone would **not** fix this. `aria-modal` changes what
+   assistive technology exposes; it does not move the Tab ring. Real containment
+   needs a focus trap as well.
+
 3. **`TaskForm` has no focus management and no `aria-busy`.** The other three
    islands all set `aria-busy` on their pending control
    (`TaskCompletionButton.tsx:43`, `TaskDeleteControl.tsx:118`,
    `TaskEditControl.tsx:178`); `TaskForm` does not, and contains no focus
-   handling at all. The static absence is confirmed; **the runtime focus
-   behavior after create + revalidation is not yet verified** and must be
-   measured, not assumed.
+   handling at all.
 
-4. **Testing coverage is two layers deep.** L1 (validation, 84 tests) and L2
-   (server actions + query layer against a real database, 72 tests) are
-   permanently covered — 156 total. L3 (browser E2E + accessibility) does not
-   exist. See §11.
+   **Phase 3 measured this: CONFIRMED, and the open question is now answered.**
+   - *Runtime focus:* after a rejected create, disabling the submit button while
+     the action is in flight blurs it and focus falls to **`<body>`**. A keyboard
+     or screen-reader user is left with no focused element and must rediscover
+     the form from the top of the document. `TaskEditControl` solves exactly
+     this with an effect that refocuses the first field at fault; `TaskForm` has
+     no equivalent.
+   - *`aria-busy`:* measured present on all three other islands and **absent on
+     the create submit**, so a screen reader is never told the create request is
+     in flight.
+   Pinned by *"a rejected submit strands focus on the document body (known bug)"*
+   and *"the create submit carries no aria-busy, unlike the other three
+   islands"* in `e2e/keyboard-focus.spec.ts`.
+
+4. **Two behaviours axe cannot see, now covered.** Not defects, but the limit of
+   automated checking, and the reason L3 is not just an axe run. See §11.
 
 5. **`README.md` is unmodified `create-next-app` boilerplate.** It gives a wrong
    path (`app/page.tsx`; the file is `src/app/page.tsx`) and Vercel deployment
@@ -384,20 +434,25 @@ reasoning.
 | Concern | Choice |
 |---|---|
 | Unit / integration runner | **Vitest** (installed, v4.1.11) |
-| Browser E2E runner | **Playwright** (Phase 4 — not installed) |
-| Accessibility | **@axe-core/playwright** (Phase 4 — not installed) |
+| Browser E2E runner | **Playwright** (installed, v1.63; Chromium 153) |
+| Accessibility | **@axe-core/playwright** (installed, v4.13) |
 | Rejected | Jest, React Testing Library, jsdom, snapshot testing |
 
 **L1** pure validation unit tests · **L2** server-action + query-layer
 integration against real SQLite · **L3** Playwright E2E.
 
-### Permanent tests in the repository: **156** — 84 L1 + 72 L2
+### Permanent tests in the repository: **260** — 84 L1 + 72 L2 + 104 L3
 
 | Suite | Tests | Database | Mocks |
 |---|---|---|---|
 | `src/lib/validations/task.test.ts` | 84 | none (pure) | none |
 | `src/actions/tasks.test.ts` | 50 | real SQLite | `next/cache` only |
 | `src/lib/queries/tasks.test.ts` | 22 | real SQLite | none |
+| `e2e/task-crud.spec.ts` | 39 | real SQLite (e2e.db) | none — real browser |
+| `e2e/keyboard-focus.spec.ts` | 17 | real SQLite (e2e.db) | none — real browser |
+| `e2e/accessibility.spec.ts` | 17 | real SQLite (e2e.db) | none — real browser |
+| `e2e/responsive.spec.ts` | 11 | real SQLite (e2e.db) | none — real browser |
+| `e2e/database-safety.spec.ts` | 20 | reads e2e.db + dev.db | none |
 
 - Command: `npm test` (single run) · `npm run test:watch` (watch mode).
 - Config: `vitest.config.mts` — `environment: "node"`,
@@ -475,15 +530,106 @@ per-row `isComplete` flags across inconsistent rows.
 actually refreshes after a create/edit is still **unverified** and belongs to
 Phase 4.
 
+### The L3 browser suite (Phase 3)
+
+Runs against a **production build**, not the dev server: `playwright.config.ts`
+boots `next build && prisma migrate deploy && next start` on port 3100 and points
+`DATABASE_URL` at a dedicated `.test/db/e2e.db`. `baseURL` is fixed at
+`http://127.0.0.1:3100`, so tests never race a dev server someone left running.
+
+- **Database safety.** `e2e/lib/e2e-database.ts` is the single source of the E2E
+  path and **hard-fails on import** if the target is not the dedicated file. It
+  rejects `dev.db` (any case, any depth), `prod.db`, the L2 database, and
+  anything outside `.test/`. The ambient `DATABASE_URL` must match the E2E file
+  *exactly* — a merely "safe-looking" path is refused, because otherwise the
+  server and the tests would silently work on two different files.
+  `e2e/database-safety.spec.ts` proves the outcome end to end: a task created in
+  the browser lands in `e2e.db` and the `dev.db` task count is unchanged.
+- **Isolation.** A `cleanDatabase` auto-fixture empties the task table before
+  every test, so specs are order-independent.
+- **Strict console gate.** Uncaught page errors, `console.error`, failed
+  requests and any 5xx fail the test. The allowlist is two documented entries
+  with measured justifications (`e2e/fixtures.ts`). Application errors are never
+  suppressed.
+- **The due-date bug (§10 item 0) is now also pinned through the UI**, not just
+  at the action layer.
+
+### What axe found: nothing — and that is the finding
+
+Every application state (empty, populated, create-error, edit open, edit-error,
+delete confirmation, completed) scans **clean**: zero violations, and the broader
+`best-practice` tag set adds nothing. The allowlist is empty, so a future contrast
+or labelling regression fails the build.
+
+**The important consequence: axe reports zero violations while all three
+confirmed defects in §10.1–3 are present in the DOM.** None of them is a rule axe
+implements — they concern live-region *count*, focus *containment*, and where
+focus lands after a failure. `accessibility.spec.ts` proves this rather than
+asserting it: *"axeCannotSeeTheKnownDefects"* builds a page containing all three
+defects and asserts axe still reports nothing. So the behavioural coverage in
+`keyboard-focus.spec.ts` is not redundant with the axe run — it is the only
+coverage those defects have.
+
+### Measured, not assumed (Phase 3 findings)
+
+- **Focus after a rejected create lands on `<body>`.** This answers the question
+  Phase 1 left open. The create form has no focus management; the edit island
+  does. Pinned as a regression marker.
+- **The create submit has no `aria-busy`;** the other three islands do.
+- **A rejected create mounts 2 application-authored assertive live regions.** The
+  third `role="alert"` match is Next.js's own `#__next-route-announcer__`, which
+  exists because the action revalidates the route. Tests count the application's
+  two, scoped to the form.
+- **The server-action POST is reported as `net::ERR_ABORTED`.** Measured: it
+  completes with HTTP 200 first, the resulting UI state is correct, and it only
+  appears on validation-failure and superseded submissions — never on a
+  successful create. Chromium reporting that React stopped reading a response it
+  had already applied. Documented in the fixture allowlist.
+- **The completion toggle is 24x24; every other control is 44x44.** Measured at
+  both viewports. It meets WCAG 2.2 AA SC 2.5.8, so it is not a failure, but it
+  is a real asymmetry.
+- **The delete confirmation takes its own full-width line at 375px *and* 1280px**
+  (measured 317/343 and 494/528 of the row). Only its buttons go inline
+  (`sm:flex-none`).
+- **Completion state is conveyed non-visually.** `TaskList.tsx:92` renders
+  sr-only "Completed task"/"Open task", so the strike-through is not colour-alone
+  and WCAG 1.4.1 is satisfied. Worth protecting — easy to drop in a refactor.
+- **An impossible due date is unreachable through the UI.** `type="date"` refuses
+  to hold 30 February, so the server rule (proven at L1/L2) is a defence-in-depth
+  path, not a reachable one. Playwright's `fill` refuses the same value, so the
+  test assigns it in the page and asserts the browser drops it.
+- **A native `type="date"` input owns several internal Tab stops,** so Tab stays
+  inside it for a few presses. Platform behaviour, not an app defect; the tab-order
+  tests step forward until the target is focused rather than assuming a count.
+
+### Test-harness corrections made in Phase 3
+
+- **An intermittent `document-title` violation (serious, WCAG 2.4.2) on the
+  completed-task state — roughly 1 run in 3 — was a false positive.** The served
+  HTML contains `<title>MyTask</title>`, and six consecutive settled scans all
+  reported `readyState=complete` with the title present and zero violations. The
+  scan was evaluating the rule against a document a revalidation was still
+  rewriting, so `scanPage` now waits for `load` and a non-empty title. The
+  diagnosis is recorded in `e2e/lib/axe.ts`; five consecutive full runs are clean.
+- **ESLint was linting `.test/report`**, the generated Playwright HTML report,
+  producing 260 bogus errors. `.test/**` is now globally ignored.
+- **`react-hooks/rules-of-hooks` flagged the standard Playwright `page` fixture
+  override** because the callback is conventionally named `use`. The callbacks are
+  named `withPage` / `withDatabase` instead, which keeps the console-error gate
+  working rather than muting the rule.
+- **The 375px `Due date` label matched a `/Due/` assertion** meant to detect an
+  absent date, because an open edit form's label lives inside the same row. The
+  helper is now anchored (`/^Due \d{4}-\d{2}-\d{2}$/`).
+
 ### Known gaps
 
-- **L3 does not exist.** The confirmed accessibility defects (§10.1–3) still
-  have no coverage, so they cannot be verified as fixed. The static-vs-runtime
-  focus question in §10.3 is still open.
-- **The `revalidatePath` → visible-refresh path is unverified end to end.**
-- No CI, so even `test` / `typecheck` / `lint` are unenforced.
-- **The due-date clearing bug (§10.1 item 0) is unfixed** and is currently
-  pinned by a test that asserts the broken behavior.
+- **Chromium only.** No Firefox or WebKit project, and no mobile-browser project;
+  responsive coverage changes the viewport, not the engine.
+- **No CI, so `test` / `e2e` / `typecheck` / `lint` are still unenforced** (§10.6).
+- **The three defects in §10.1–3 remain unfixed** and are pinned by tests that
+  assert today's behaviour, so the suite is green and the defects stay visible.
+- **The due-date clearing bug (§10 item 0) is unfixed** for the same reason.
+- `tsx` remains installed and unused (§14).
 
 
 ## 12. Deferred Work
@@ -498,7 +644,7 @@ Deliberately postponed. **Do not add these without explicit approval.**
 | Subtasks, Kanban | Out of V1. |
 | Bulk actions, CSV export | Out of V1. |
 | PWA | Out of V1. |
-| CI | Deferred, but see §10.6 — highest-value cheap win. |
+| CI | Deferred, but see §10.7 — highest-value cheap win. |
 | `priority` index | Add when sort ships; irrelevant at current scale. |
 | FTS / search index | Decide when search ships. |
 | Server log redaction | Before any hosted deployment. |
@@ -528,40 +674,44 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-Implement TESTING PHASE 3 — browser E2E with Playwright, plus the first
-accessibility coverage via @axe-core/playwright.
+Implement TESTING PHASE 4 — CI enforcement of the permanent suite.
 
-Phase 2 is complete and committed. Phase 3 has NOT been started.
+Phase 3 is complete and committed. Phase 4 has NOT been started.
 
-Approved architecture (already decided — do not re-open):
-  Runner ............ Vitest (installed, v4.1.11)
-  E2E runner ........ Playwright  (NOT installed — install in this phase)
-  Accessibility ..... @axe-core/playwright (NOT installed)
-  Rejected .......... Jest, React Testing Library, jsdom, snapshot testing
+All three testing layers now exist and pass locally: 260 tests
+(84 L1 + 72 L2 + 104 L3), plus typecheck, lint and build.
 
-Highest-value targets, in priority order:
-  1. The revalidatePath path that L2 had to mock. A create/edit/delete must
-     visibly refresh the list without a manual browser reload. This is the one
-     user-visible behavior the current 156 tests cannot reach (§11).
-  2. Keyboard operability of the edit and delete islands, and the
-     create-then-focus question left open in §10.3 — measure it, do not assume.
-  3. @axe-core/playwright run on the list page and on each of the four task
-     islands, to give §10.1-3 a reproducible pass/fail signal.
+Highest-value target, and the reason this phase exists (§10.6):
+  Nothing enforces any of it. `git remote` is empty, `test` / `e2e` /
+  `typecheck` / `lint` are manual only, and the L2 database safety gate in
+  tests/setup/database-env.ts protects a developer's machine while doing
+  nothing in CI, where the real risk is different.
+
+Things Phase 4 must get right:
+  - Decide the CI provider and pin the Node version to match the local toolchain.
+  - Install Playwright's browser with dependencies in the CI image; a bare
+    `npx playwright install` is not enough on Linux.
+  - Keep L1/L2 and L3 in separate jobs. L3 builds the app and boots a server,
+    so it is minutes rather than seconds; do not serialise everything behind it.
+  - Reproduce the E2E database safety story in CI: a fresh checkout has no
+    .test/db/e2e.db, and the suite creates it from the existing migrations.
+  - Make `dev.db` protection explicit in CI, where there is no developer .env
+    to accidentally point at.
+
+Then Phase 5: tooling cleanup. `tsx` is installed and unused (§10.14) and can go
+now that the testing phases are done.
 
 Constraints:
-  - Do NOT fix the accessibility defects you find. Report them; they are
-    already logged and fixing them is a separate, approved piece of work.
-  - Do NOT fix the due-date clearing bug (§10.1 item 0) as a side effect. It
-    needs a product decision about absent-vs-cleared, not a quick patch.
-  - Do NOT weaken the L2 due-date regression test. If the bug is ever fixed,
-    invert that one assertion to expect null.
-  - Playwright must start its own web server and must not use dev.db for its
-    seeded data — decide and document how the E2E run gets a known starting
-    state, and never point it at the developer's database.
-  - Keep the dev.db safety gate in tests/setup/database-env.ts intact.
+  - Do NOT fix the accessibility defects in §10.1-3. They are pinned by
+    regression markers; fixing them is separate, approved work. When one is
+    fixed, invert its test rather than deleting it.
+  - Do NOT fix the due-date clearing bug (§10 item 0) as a side effect.
+  - Do NOT add a git remote or push anything unless explicitly asked.
+  - Do NOT weaken the E2E database guard in e2e/lib/e2e-database.ts. It
+    hard-fails on import by design.
 
-Verify before committing: npm test (all 156 must still pass), npm run
-typecheck, npm run lint. Then update this file and make ONE commit.
+Verify before committing: npm test, npm run e2e, npm run typecheck,
+npm run lint, npm run build. Then update this file and make ONE commit.
 ```
 
 **Update this section whenever the project moves to a new milestone.**
@@ -741,6 +891,64 @@ Recorded so they are not repeated:
 - L2 was verified to be **order-independent and repeatable**: ordering
   assertions use explicit `createdAt` values and a deliberate same-instant tie
   for the `id` tie-break, never insertion order or cuid monotonicity.
+
+### Phase 3 handoff notes (new)
+
+**What is where**
+
+| Path | Role |
+|---|---|
+| `playwright.config.ts` | Chromium only, serial, boots `next build` + `next start` on 3100 |
+| `e2e/fixtures.ts` | `cleanDatabase` auto-fixture + the strict console/page-error gate |
+| `e2e/global-setup.ts` | Fails fast and prints the confirmed target before anything starts |
+| `e2e/lib/e2e-database.ts` | The ONLY place the E2E path is written down; hard-fails on import |
+| `e2e/lib/task-ui.ts` | Role/name-based locators — never CSS or test ids |
+| `e2e/lib/axe.ts` | axe wrapper; empty allowlist, with the false-positive diagnosis recorded |
+| `e2e/database-safety.spec.ts` | Tests for the guard itself, plus the end-to-end isolation proof |
+
+Scripts: `npm run e2e`, `npm run e2e:report`, and `e2e:build` / `e2e:migrate` /
+`e2e:server` (which the Playwright webServer runs for you).
+
+**Decisions worth not re-litigating**
+
+- **Production build, not the dev server.** `next start` on a fixed port with a
+  fixed `baseURL`. The dev server compiles routes on demand, which makes timings
+  unpredictable and lets a stray `npm run dev` on 3000 interfere.
+- **`fullySerial: true`.** Every test truncates the one task table, so parallel
+  workers would delete each other's data. The cost is a ~1.3 minute suite; the
+  alternative is a per-worker database, which is not worth it at this size.
+- **Locators are role- and name-based.** This is what makes the accessibility
+  assertions meaningful — `getByLabel` and `getByRole` only resolve through the
+  accessibility tree, so they fail if the wiring regresses.
+- **Known defects are asserted, not suppressed, and not left failing.** Each has
+  a test named `known bug` that pins today's behaviour. A permanently red test
+  gets ignored or deleted, which would lose the evidence; a green test with a
+  truthful name keeps the defect visible *and* keeps the suite usable as a gate.
+  When one is fixed, flip the assertion.
+- **No test-only hooks were added to the application.** Nothing in `src/` knows
+  the E2E suite exists.
+
+**Answers to the questions Phase 1 and 2 left open**
+
+- Does the `revalidatePath` refresh actually reach the screen? **Yes** — proven in
+  `task-crud.spec.ts` by reading the count and the new row after each mutation,
+  with no manual reload.
+- Where does focus go after a rejected create? **To `<body>`.** See §10 item 3.
+- Does the delete dialog contain focus? **No.** Two Tabs from Cancel reach
+  Delete, the third escapes behind the still-open dialog. See §10 item 2.
+- Does the create form expose `aria-busy`? **No**; the other three islands do.
+
+**If you extend L3**
+
+- Prefer a measurement to an assumption. Every wrong assertion in this phase
+  came from guessing at markup (`data-completed`, an inline confirmation) or at
+  framework behaviour (a third `role="alert"`), and each was resolved by
+  probing the real DOM first.
+- `scanPage` waits for a settled document on purpose. Do not "optimise" that
+  wait away without re-running the accessibility spec several times; the
+  `document-title` flake it fixes was real at roughly 1 run in 3.
+- The axe allowlist is empty. Resist adding to it. If axe reports something,
+  the fix belongs in the application.
 
 ### Environment note
 

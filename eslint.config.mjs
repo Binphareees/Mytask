@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated test output: SQLite databases and the Playwright HTML report,
+    // which is bundled JavaScript and not ours to lint.
+    ".test/**",
   ]),
 ]);
 

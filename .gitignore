@@ -51,3 +51,8 @@ next-env.d.ts
 
 # L2 integration-test database (dedicated, disposable, never committed)
 /.test/
+
+# L3 browser-test output: Playwright failure artifacts and any report written
+# outside .test/. Neither is source, and both change on every run.
+/test-results/
+/playwright-report/
