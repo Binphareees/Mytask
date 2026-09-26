@@ -339,19 +339,84 @@ describe("edit task validation", () => {
     expect(rejected(update({ ...valid, description: null }))).toHaveProperty("description");
   });
 
-  it("applies the same due date rules as create", () => {
+  it("applies the same date-string rules as create", () => {
     expect(accepted(update({ ...valid, dueDate: "2028-02-29" })).dueDate).toBe("2028-02-29");
     expect(rejected(update({ ...valid, dueDate: "2029-02-29" }))).toHaveProperty("dueDate");
     expect(rejected(update({ ...valid, dueDate: "2026-01-01T00:00:00Z" }))).toHaveProperty("dueDate");
-    expect(accepted(update({ ...valid, dueDate: "" })).dueDate).toBeUndefined();
   });
 
-  it("can clear an existing due date by sending an empty string", () => {
+  it("treats a blank string as no-change on update, not as a clear", () => {
+    // A form-urlencoded client cannot send "absent" for a date input, so the
+    // blank string keeps the historical "field omitted" meaning. Clearing is
+    // the explicit null's job — see the update due-date contract suite below.
     expect(accepted(update({ ...valid, dueDate: "" })).dueDate).toBeUndefined();
   });
 
   it("rejects an invalid task id on an update", () => {
     expect(rejected(update({ ...valid, taskId: "not a valid id" }))).toHaveProperty("taskId");
+  });
+});
+
+describe("update due-date contract: omitted vs null vs date", () => {
+  const valid = {
+    taskId: "clx123abc",
+    title: "Ship the release",
+    description: "Tag, build, publish.",
+    priority: "high",
+    dueDate: "2026-01-01",
+  };
+
+  it("leaves an omitted due date as an absent key (preserve)", () => {
+    const withoutDueDate = {
+      taskId: valid.taskId,
+      title: valid.title,
+      description: valid.description,
+      priority: valid.priority,
+    };
+
+    const data = accepted(update(withoutDueDate));
+
+    expect(Object.hasOwn(data, "dueDate")).toBe(false);
+  });
+
+  it("normalizes a blank due date to undefined — the same preserve meaning as omitted", () => {
+    // The contract the action relies on is the *value*: undefined means
+    // "unchanged", and both an omitted key and a blank string produce it.
+    // (Zod does keep the key present-with-undefined on the blank path — the
+    // mechanic recorded in the Phase 1 handoff — but that is an
+    // implementation detail; only the value reaches the update.)
+    const data = accepted(update({ ...valid, dueDate: "" }));
+
+    expect(data.dueDate).toBeUndefined();
+    expect(data.dueDate).not.toBeNull();
+  });
+
+  it("accepts an explicit null as clear-the-stored-value", () => {
+    const data = accepted(update({ ...valid, dueDate: null }));
+
+    expect(data.dueDate).toBeNull();
+    expect(Object.hasOwn(data, "dueDate")).toBe(true);
+  });
+
+  it("keeps a valid date as a string (replace)", () => {
+    const data = accepted(update({ ...valid, dueDate: "2026-11-15" }));
+
+    expect(data.dueDate).toBe("2026-11-15");
+    expect(typeof data.dueDate).toBe("string");
+  });
+
+  it("rejects an invalid date string in all three shapes", () => {
+    expect(rejected(update({ ...valid, dueDate: "2026-13-01" }))).toHaveProperty("dueDate");
+    expect(rejected(update({ ...valid, dueDate: "2026-02-30" }))).toHaveProperty("dueDate");
+    expect(rejected(update({ ...valid, dueDate: "next tuesday" }))).toHaveProperty("dueDate");
+  });
+
+  it("does not let create carry an explicit null through (create has no stored value to clear)", () => {
+    // Create folds null and "" and omitted all to "no date", which is what
+    // keeps the three-valued contract an update-only concept.
+    const data = accepted(create({ title: "x", dueDate: null }));
+
+    expect(data.dueDate).toBeUndefined();
   });
 });
 

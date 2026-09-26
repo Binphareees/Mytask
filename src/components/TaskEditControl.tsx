@@ -107,12 +107,21 @@ export function TaskEditControl({ taskId, values }: TaskEditControlProps) {
     startTransition(async () => {
       // Only the task reference and the four editable fields. No status, no
       // timestamps, and no nested `where`/`data` for the server to trust.
+      //
+      // `dueDate` follows the update contract's three-valued distinction: an
+      // untouched `<input type="date">` reports `""` for both "never had a
+      // date" and "user cleared it", so a blank field sends an explicit null
+      // ("clear it"), while every other value is sent as the date string. The
+      // preserve case ("field omitted") stays reserved for a client that
+      // sends no `dueDate` key at all.
+      const dueDate = formData.get("dueDate");
+
       const result = await updateTask({
         taskId,
         title: formData.get("title"),
         description: formData.get("description"),
         priority: formData.get("priority"),
-        dueDate: formData.get("dueDate"),
+        dueDate: dueDate === "" ? null : dueDate,
       });
 
       if (!result.success) {

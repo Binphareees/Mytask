@@ -15,6 +15,8 @@ export function TaskDeleteControl({ taskId, title }: TaskDeleteControlProps) {
 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // The panel and the trigger are never mounted at the same time, so focus has
   // to be moved in an effect rather than inside the click handlers: on open,
@@ -37,6 +39,72 @@ export function TaskDeleteControl({ taskId, title }: TaskDeleteControlProps) {
       wasConfirming.current = false;
       triggerRef.current?.focus();
     }
+  }, [isConfirming]);
+
+  /*
+   * Focus containment while the confirmation is open.
+   *
+   * A destructive confirmation must not leave background controls operable by
+   * keyboard, and `aria-modal` alone cannot provide that: it changes what
+   * assistive technology exposes, not where Tab goes. Two small mechanisms
+   * close the ring:
+   *
+   * - Tab past either edge of the two-button dialog wraps back inside;
+   * - focus that escapes by any other route (a programmatic focus call, a
+   *   pointer click on the page behind, or Tab skipping the disabled Delete
+   *   button while a delete is pending) is returned to Cancel by the
+   *   focusout effect below.
+   *
+   * Deliberately local and small: two buttons need a two-step cycle, not a
+   * focus-trap library that queries the whole subtree on every Tab.
+   */
+  function handleDialogKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      cancelConfirmation();
+
+      return;
+    }
+
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const onLastControl =
+      !event.shiftKey && document.activeElement === deleteButtonRef.current;
+    const onFirstControl =
+      event.shiftKey && document.activeElement === cancelRef.current;
+
+    if (onLastControl || onFirstControl) {
+      // Tab past an edge wraps inside the dialog instead of escaping behind
+      // it. Cancel -> Delete follows natural order and needs no interception.
+      event.preventDefault();
+      (onFirstControl ? deleteButtonRef : cancelRef).current?.focus();
+    }
+  }
+
+  useEffect(() => {
+    if (!isConfirming) {
+      return;
+    }
+
+    const checkFocus = () => {
+      // Deferred by a task because focusout fires before the browser has
+      // finished moving focus: synchronously, `document.activeElement` is
+      // still the element inside the dialog that is about to lose it.
+      setTimeout(() => {
+        const dialog = dialogRef.current;
+        const active = document.activeElement;
+
+        if (dialog && active && !dialog.contains(active)) {
+          cancelRef.current?.focus();
+        }
+      }, 0);
+    };
+
+    document.addEventListener("focusout", checkFocus);
+
+    return () => document.removeEventListener("focusout", checkFocus);
   }, [isConfirming]);
 
   function openConfirmation() {
@@ -67,23 +135,18 @@ export function TaskDeleteControl({ taskId, title }: TaskDeleteControlProps) {
     });
   }
 
-  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      cancelConfirmation();
-    }
-  }
-
   const headingId = `delete-heading-${taskId}`;
   const descriptionId = `delete-description-${taskId}`;
 
   if (isConfirming) {
     return (
       <div
+        ref={dialogRef}
         role="alertdialog"
+        aria-modal="true"
         aria-labelledby={headingId}
         aria-describedby={descriptionId}
-        onKeyDown={handleKeyDown}
+        onKeyDown={handleDialogKeyDown}
         className="flex basis-full flex-col gap-2 rounded-lg border border-red-200 bg-red-50 p-3"
       >
         <p id={headingId} className="text-sm font-medium text-red-900">
@@ -112,6 +175,7 @@ export function TaskDeleteControl({ taskId, title }: TaskDeleteControlProps) {
           </button>
 
           <button
+            ref={deleteButtonRef}
             type="button"
             onClick={handleConfirm}
             disabled={isPending}

@@ -4,111 +4,170 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: testing Phase 3 complete, `main`. Authoritative
+Last verified against repository: Phase 4 (defect fixes) complete, `main`. Authoritative
 commit: see `git log -1`.
 
 ---
 
 ## 1. Current Phase
 
-**Permanent Testing Infrastructure** — Phase 3 of 5 complete. The validation
-trust boundary, the server-action / query-layer data path, *and* the real
-browser experience are now covered by permanent tests. Phases 4–5 (CI
-enforcement, cleanup) are not started.
+**Verified Defect Fixes** — Phase 4 of the task sequence complete. The five
+previously demonstrated defects (three accessibility, one focus-containment,
+one data contract) are fixed, re-tested, and committed. The five-phase testing
+plan from Phases 1–3 (unit / integration / E2E infrastructure) was already
+complete; CI enforcement remains the top open item (see §14).
 
 ## 2. Current Milestone
 
-**Phase 3 — L3 browser E2E and accessibility tests against a production build:
-COMPLETE and committed.**
+**Phase 4 — Fix verified accessibility defects + due-date clearing: COMPLETE
+and committed.**
 
-- Approved test architecture: **Vitest** (unit/integration), **Playwright**
-  (browser E2E), **@axe-core/playwright** (accessibility).
-- Explicitly rejected: Jest, React Testing Library, jsdom, snapshot testing.
-- Testing layers: **L1** pure validation unit tests · **L2** server-action and
-  query-layer integration against real SQLite · **L3** Playwright E2E.
+Five defects, each previously demonstrated by a permanent regression marker in
+the L2/L3 suites, are now fixed at the source and re-pinned by tests of the
+corrected behaviour:
 
-**Phase 1 delivered:** Vitest 4.1.11, `vitest.config.mts`, `test` / `test:watch`
-scripts, and **84 permanent tests** in `src/lib/validations/task.test.ts`.
+1. **Create-form validation no longer mounts multiple assertive live regions.**
+   Field errors are plain text associated via `aria-describedby`; the single
+   application-authored `role="alert"` on a rejected submit is the form-level
+   banner.
+2. **A rejected create moves focus to the first invalid field** (or the
+   form-level message when no field is at fault) instead of stranding focus on
+   `<body>`.
+3. **The create form exposes the client-island pending/busy pattern**: the
+   submit button carries `aria-busy` like the other three islands, the form
+   marks itself busy, and duplicate submission is prevented.
+4. **The delete confirmation genuinely contains keyboard focus**: `aria-modal`
+   plus Tab/Shift+Tab wrapping and a focusout rescue, local to
+   `TaskDeleteControl`.
+5. **A stored due date can now be explicitly cleared.** The update path
+   distinguishes `undefined` (omit → preserve) / `null` (clear) / `YYYY-MM-DD`
+   (replace) end to end: schema, server action, and edit form.
 
-**Phase 2 delivered:** **72 permanent L2 tests** — 50 in
-`src/actions/tasks.test.ts` and 22 in `src/lib/queries/tasks.test.ts` — against a
-dedicated `.test/db/integration.db` created by the existing migrations.
+Test architecture is unchanged: **Vitest** (unit/integration), **Playwright**
+(browser E2E), **@axe-core/playwright** (accessibility). Layers: **L1** pure
+validation unit tests · **L2** server-action and query-layer integration
+against real SQLite · **L3** Playwright E2E against a production build.
 
-**Phase 3 delivered:** **104 permanent L3 tests** in `e2e/`, driving a real
-`next build` + `next start` server in Chromium through Playwright, with
-`@axe-core/playwright` scanning every application state. Total suite:
-**260 tests (84 L1 + 72 L2 + 104 L3).** No production file was modified.
+**Suite totals after Phase 4: 275 permanent tests (90 L1 + 76 L2 + 109 L3).**
+The pre-Phase-4 baseline was 260 (84 L1 + 72 L2 + 104 L3) and was verified
+before any change was made.
 
 ## 3. Project Status
 
 **Working / complete:**
 
 - All four mutations implemented and verified: create, edit, delete, complete/incomplete
-- All four task fields implemented: title, description, priority, due date
+- All four task fields implemented: title, description, priority, due date —
+  and a due date can now be added, replaced, *and cleared* through the edit form
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
-- Responsive UI (mobile + desktop)
-- **Permanent test suite: 260 tests (84 L1 + 72 L2 + 104 L3), all passing**,
+- **Permanent test suite: 275 tests (90 L1 + 76 L2 + 109 L3), all passing**,
   each layer against its own dedicated disposable database
 - `test`, `e2e`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
 
-**Currently being developed:** nothing. Phase 3 is finished; Phase 4 has not
-begun.
+**Currently being developed:** nothing. Phase 4 is finished; CI enforcement
+(§14) has not begun.
 
-**Working tree:** clean at the Phase 3 commit.
+**Working tree:** clean at the Phase 4 commit.
 
 **Not yet built:** filter, search, sort, dashboard statistics (see §8), and
-testing Phases 4–5 (see §11).
+CI enforcement (§11, §14).
 
 ## 4. Last Completed Milestone
 
-**Phase 3 — L3 browser E2E and accessibility tests against a production build.**
+**Phase 4 — the five verified defect fixes.** Production changes were limited
+to seven files; tests changed only to express/freeze the corrected behaviour.
 
-Delivered: **104 permanent L3 tests** in `e2e/`, driving a real `next build` +
-`next start` server in Chromium through Playwright, with `@axe-core/playwright`
-scanning every application state.
+### Due-date clearing contract (the data-contract fix)
 
-- `e2e/task-crud.spec.ts` (39) — create, edit, complete/reopen, delete,
-  validation UX, and the `revalidatePath` → visible-refresh proof that L2 had to
-  mock.
-- `e2e/keyboard-focus.spec.ts` (17) — tab order, full keyboard operability, and
-  focus management. This is where the three confirmed defects in §10.1–3 are
-  verified, because none of them is detectable by axe.
-- `e2e/accessibility.spec.ts` (17) — axe across seven states, plus the semantics
-  axe does not check (live-region politeness, `aria-invalid` wiring, accessible
-  names, non-visual completion state).
-- `e2e/responsive.spec.ts` (11) — 375px and 1280px, asserting measured geometry:
-  no horizontal overflow, containment of unbreakable strings, and real tap-target
-  sizes.
-- `e2e/database-safety.spec.ts` (20) — tests for the database guard itself, plus
-  the end-to-end proof that a task created in the browser lands in `e2e.db` and
-  leaves `dev.db` untouched.
+The update path is now explicitly three-valued, and every layer enforces its
+share:
 
-**All three of the open questions from Phases 1–2 are now answered by
-measurement** — see §15 Phase 3 handoff notes. The most consequential result is
-that **axe reports zero violations in every state while all three confirmed
-defects are present in the DOM**, which is why the behavioural suite is not
-redundant with the axe run.
+```text
+undefined (field omitted) -> left out of the Prisma data payload -> column preserved
+null                      -> written as a real SQL NULL          -> column cleared
+"YYYY-MM-DD"              -> written as given                    -> column replaced
+```
 
-Gates: **260/260 tests pass** (84 L1 + 72 L2 + 104 L3), `typecheck` exit 0,
-`lint` exit 0 with 0 warnings, `build` succeeds. `dev.db` verified byte-identical
-(md5 `3a8be6b55df5e79d2510cf82d47ab3a3`) across full runs. `git diff` confirms
-**no file under `src/` was modified** — the only tracked changes are
-`package.json`, `package-lock.json`, `eslint.config.mjs` and `.gitignore`.
+- `updatableDueDateSchema` (`validations/task.ts`) preprocesses only an exact
+  `""` → `undefined` (the form-urlencoded blank-field case, which is
+  indistinguishable from an absent key and keeps the historical "unchanged"
+  meaning) and otherwise validates `dueDateValueSchema.nullable().optional()`.
+  Invalid date strings are rejected exactly as before. Create keeps the old
+  collapsed schema: it has no stored value, so blank/null/omitted all mean
+  "no date", and an explicit null is *not* valid on create beyond that fold.
+- `updateTask` (`actions/tasks.ts`) builds `data` field by field and adds
+  `dueDate` only when the validated value is not `undefined`. A null therefore
+  survives into `prisma.task.updateMany` and clears the column; nothing is
+  spread, the allowlist is intact.
+- The edit island sends `dueDate: null` when the date input is blanked, and
+  the date string otherwise. (An `<input type="date">` reports `""` for both
+  "never had a date" and "cleared", so the UI cannot express "omitted"; the
+  preserve case remains reserved for API clients that omit the key, and is
+  proven at L2/L3.)
+- Regression coverage: L1 "update due-date contract" suite (omitted / blank /
+  null / valid / invalid), L2 preserve + replace + clear + blank + falsy-
+  rejection tests, L3 "clears an existing due date", "keeps the existing due
+  date when untouched", "replaces", and "a cleared due date stays cleared after
+  a reload". The former known-bug markers at L2 and L3 were inverted, not
+  deleted.
+
+### Create-form accessibility
+
+- `TaskFields` field errors are no longer `role="alert"`; they remain
+  associated with their controls via `aria-describedby` (both directions
+  asserted) and stay visually identical.
+- `TaskForm` was moved from `<form action={formAction}>` to
+  `onSubmit` + `preventDefault` + `useTransition`. This fixed two measured
+  defects at once: React's automatic form reset no longer discards typed input
+  on a rejected submit, and the component has an effect to move focus to the
+  first invalid field (or the `tabIndex={-1}` form-level message) after a
+  failure instead of focus falling to `<body>`. A successful create still
+  announces politely (`role="status"`) and still resets the form via its key.
+- The submit button carries `aria-busy` and the form marks itself busy while
+  pending, matching the edit/delete/completion islands.
+
+### Delete-dialog focus containment
+
+`TaskDeleteControl` keeps `role="alertdialog"` and its labelled/described
+semantics, and adds genuine containment, all local to the component:
+
+- `aria-modal="true"` for assistive technology (not sufficient by itself —
+  that was the Phase 3 measurement);
+- Tab past either edge wraps between Cancel and Delete (forward from Delete,
+  Shift+Tab from Cancel); Cancel → Delete follows natural order;
+- a `focusout` effect returns any focus that escaped by another route
+  (programmatic focus, a click behind, Tab skipping the disabled Delete while
+  pending) to Cancel, deferred by a task because `focusout` fires before the
+  browser finishes moving focus;
+- Escape still closes, and closing still restores focus to the trigger.
+
+### Verification results (all run after the fixes)
+
+- `npm test` — 166/166 (88 L1 + 56 L2 actions + 22 L2 queries)
+- `npm run e2e` — 109/109 L3 against a production `next build` + `next start`
+- axe: zero violations in every scanned state; the axe configuration and its
+  empty allowlist were not weakened
+- `npm run typecheck` — exit 0; `npm run lint` — exit 0, 0 warnings
+- `npm run build` — succeeds
+- `dev.db` verified byte-identical before and after (md5
+  `3a8be6b55df5e79d2510cf82d47ab3a3`, mtime unchanged — never opened for write)
+- No migrations created; `prisma/migrations` unchanged
 
 ## 5. Last Git Commit
 
 | Field | Value |
 |---|---|
-| Message | `test: add browser E2E and accessibility suite` |
+| Message | `fix: resolve verified accessibility and due date issues` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `c61abe7` (`test: add action and query integration tests`) |
+| Parent | `d066cfd` (`test: add browser E2E and accessibility suite`) |
 | Branch | `main` |
 | Remotes | none configured (repo is local-only) |
 
-**Full history (10 commits, oldest last):**
+**Full history (11 commits, oldest last):**
 
 ```
-<this commit>  test: add browser E2E and accessibility suite
+<this commit>  fix: resolve verified accessibility and due date issues
+d066cfd  test: add browser E2E and accessibility suite
 c61abe7  test: add action and query integration tests
 396d936  test: add permanent validation tests
 d894b3b  feat: add task editing
@@ -170,10 +229,10 @@ and nothing else. Do not "solve" this by adding a service layer.
 |---|---|---|
 | `src/app/page.tsx` | Server | entry; `export const dynamic = "force-dynamic"` |
 | `src/components/TaskList.tsx` | **Server** | row rendering, badge mapping, remaining count |
-| `src/components/TaskForm.tsx` | Client | create workflow (`useActionState`) |
+| `src/components/TaskForm.tsx` | Client | create workflow (`onSubmit` + `useTransition`; focus-on-error, busy state) |
 | `src/components/TaskFields.tsx` | Client | **presentational**, shared by create + edit |
-| `src/components/TaskEditControl.tsx` | Client | edit workflow, focus management |
-| `src/components/TaskDeleteControl.tsx` | Client | delete confirmation (`alertdialog`) |
+| `src/components/TaskEditControl.tsx` | Client | edit workflow, focus management, sends null for a cleared date |
+| `src/components/TaskDeleteControl.tsx` | Client | delete confirmation (`alertdialog`, `aria-modal`, focus containment) |
 | `src/components/TaskCompletionButton.tsx` | Client | completion toggle |
 
 ### Layers
@@ -208,7 +267,7 @@ security/browser verification pass at the time of implementation.
 | Title (required) | `schema.prisma:12`; trimmed, 1–200 |
 | Description (optional) | `schema.prisma:13`; 0–2000 |
 | Priority | `constants.ts:1`; `low` / `medium` / `high` |
-| Due date (optional) | `schema.prisma:16`; calendar date `YYYY-MM-DD` |
+| Due date (optional) | `schema.prisma:16`; calendar date `YYYY-MM-DD`; editable as add / replace / explicit clear |
 | SQLite persistence | 2 migrations, adapter pattern, singleton in `db.ts` |
 | Responsive UI | `flex-wrap` + `basis-full`; `sm:` breakpoints throughout |
 
@@ -275,7 +334,29 @@ reasoning.
 
 12. **Avoid premature abstractions.** *Why:* the codebase is small and the
     duplication found so far is either trivial or load-bearing. Do not extract
-    helpers just to make tests easier.
+    helpers just to make tests easier. This now also applies to the Phase 4
+    fixes: the delete-dialog focus containment is deliberately local to
+    `TaskDeleteControl` (no modal framework, no focus-trap package), and the
+    create form's focus handling mirrors the existing edit-island pattern
+    rather than a shared abstraction. Revisit only when a third consumer
+    exists.
+
+13. **The update `dueDate` contract is three-valued: `undefined` preserves,
+    `null` clears, a date string replaces.** *Why:* an edit must express
+    three intents over one column. Blank strings fold to `undefined` because a
+    form-urlencoded client cannot distinguish "blank" from "absent"; a client
+    that wants to clear sends null. The action omits the key from the Prisma
+    payload when undefined — Prisma reads an absent key as "do not write this
+    column" — and writes a real null through when given. Create keeps the
+    collapsed (everything-blank-means-no-date) schema on purpose: it has no
+    stored value to preserve.
+
+14. **Field validation errors are not live regions.** *Why:* one rejected
+    submit used to mount several assertive `role="alert"` regions at once and
+    screen readers announced the least useful message first. Errors reach
+    assistive technology through `aria-describedby` plus focus moved to the
+    first invalid field; the form-level banner is the single assertive
+    announcement.
 
 13. **`TaskFields` is presentational and shared by create and edit.** *Why:*
     share markup without turning `TaskForm` into a mode-switching component.
@@ -283,105 +364,68 @@ reasoning.
 
 ## 10. Known Issues
 
+### FIXED in Phase 4 (history retained)
+
+The four defects below were CONFIRMED present through Phase 3, each pinned by a
+permanent regression marker. All are now fixed at the source; the former
+markers were inverted into tests of the corrected behaviour, not deleted.
+
+0. ~~**A due date can never be cleared once set.**~~ **FIXED** — the update
+   path now distinguishes `undefined` (preserve) / `null` (clear) / a date
+   string (replace); see §4 and §9.13 for the shipped contract and its
+   regression coverage. The original mechanism, kept for the record: the edit
+   form posted `dueDate: ""`, `optionalDueDateSchema` folded `""` →
+   `undefined` (correct for "omitted means unchanged"), and Prisma reads an
+   absent key as "do not write this column" — so the save reported success and
+   silently kept the old date. The "obvious" fix (make `""` validate to null)
+   would have destroyed the omitted/cleared distinction; the fix instead gave
+   the update path its own three-valued schema.
+
+1. ~~**Multiple simultaneous `role="alert"` announcements on one validation
+   failure.**~~ **FIXED** — field errors are plain text associated with their
+   controls via `aria-describedby`, so the only application-authored assertive
+   region on a rejected create is the form-level banner (asserted: exactly
+   one). Next.js's own `#__next-route-announcer__` remains framework markup
+   and is excluded from the count.
+
+2. ~~**Delete `alertdialog` had no focus containment and no `aria-modal`.**~~
+   **FIXED** — `aria-modal="true"` plus Tab/Shift+Tab edge wrapping and a
+   focusout rescue, local to `TaskDeleteControl`; background controls are
+   unreachable by keyboard while the dialog is open (asserted with full Tab
+   cycles in both directions and a programmatic-focus probe).
+
+3. ~~**`TaskForm` had no focus management and no `aria-busy`.**~~ **FIXED** —
+   a rejected create moves focus to the first invalid field (or the form-level
+   message when no field is at fault) instead of stranding focus on `<body>`;
+   the submit button carries `aria-busy` like the other three islands, and the
+   form marks itself busy while pending. The same change moved the create form
+   to `onSubmit` + `preventDefault`, which also fixed the measured
+   input-loss defect below.
+
+3b. ~~**A rejected create lost everything the user had typed**~~ (pinned by
+   "LOSES typed input…" in `task-crud.spec.ts`). **FIXED** — React no longer
+   auto-resets the form, because submission no longer goes through
+   `<form action={formAction}>`; typed values survive a rejection (asserted).
+
+The behavioural layer that caught these (`keyboard-focus.spec.ts`) is still
+the only coverage of its class: axe has no rule for live-region count, focus
+containment, or where focus lands after a failure, and an axe-clean page was
+never proof of accessibility (see §11).
+
 ### CONFIRMED — verified present in the repository right now
 
-0. **A due date can never be cleared once set.** Found by the Phase 2 L2 suite.
-   The chain, verified by direct database inspection:
-
-   1. The edit form posts `dueDate: ""` when the user empties the field.
-   2. `optionalDueDateSchema` (`validations/task.ts`) preprocesses `""` →
-      `undefined`. This is *correct* — it is what lets an **omitted** field
-      mean "leave unchanged" on update.
-   3. `updateTask` then builds `data: { title, description, priority, dueDate }`
-      with `dueDate === undefined`, and **Prisma reads `undefined` as "do not
-      write this column"**, not as `null`.
-
-   Net effect: the update reports `success: true`, the title changes, and the
-   old due date silently remains. The user has no way to remove a date short of
-   editing the database directly. Confirmed controls: an explicit Prisma-level
-   `null` **does** clear the column, and an *omitted* `dueDate` correctly
-   leaves it alone — only the `"" → undefined → unchanged` path is broken.
-
-   **Not fixed in Phase 2**, because fixing it would change production
-   behaviour, which was explicitly out of scope. The L2 test named
-   *"CANNOT clear an existing due date by sending an empty string (known bug)"*
-   asserts today's behavior as a **regression marker**; when this is fixed,
-   invert that test to expect `null` rather than deleting it.
-
-   Note the layering is subtle and the "obvious" fix is wrong: making `""`
-   validate to `null` would fix clearing but **break** the legitimate
-   "omitted field means unchanged" behavior, because both cases then become
-   indistinguishable. A real fix needs the update path to distinguish "absent"
-   from "explicitly cleared" (e.g. via a separate flag or `.nullable()` plus
-   `hasOwnProperty` on the parsed payload), and needs a decision on whether
-   `description` should behave the same way — today `description: ""` *does*
-   persist, because `""` is not `undefined`.
-
-1. **Multiple simultaneous `role="alert"` announcements on one validation failure.**
-   `TaskFields.tsx:217` renders a `role="alert"` per invalid field, *and*
-   `TaskForm.tsx` renders a `role="alert"` banner ("Error: Validation failed"),
-   *and* `TaskEditControl.tsx:157` renders one for server errors. One failed
-   submit therefore fires 2+ assertive live regions. `role="alert"` is
-   `aria-live="assertive"` and interrupts, so screen-reader users hear the least
-   useful message first, repeatedly.
-
-   **Phase 3 measured this: CONFIRMED, and quantified.** A rejected create with
-   one empty title mounts exactly **2 application-authored** assertive regions
-   inside the form, both `aria-live="assertive"`, announced least-useful-first.
-   A third match is **not** application code: Next.js injects
-   `#__next-route-announcer__` (`role="alert"`, `aria-live="assertive"`) because
-   the action revalidates the route. So `getByRole("alert")` returns 3, of which
-   2 are ours. Pinned by *"produces exactly two application live regions for one
-   invalid field"* and *"the errors are announced assertively, not politely"* in
-   `e2e/task-crud.spec.ts`. The count is scoped to the form on purpose so the
-   framework's own region is excluded rather than miscounted.
-
-2. **Delete `alertdialog` has no focus containment and no `aria-modal`.**
-   `TaskDeleteControl.tsx:83` declares `role="alertdialog"` with correct
-   `aria-labelledby`/`aria-describedby`, and focus is moved to Cancel on open and
-   restored to the trigger on close — but Tab walks straight out into the page
-   behind the open destructive dialog. No `aria-modal`, no focus trap.
-
-   **Phase 3 measured this: CONFIRMED.** `aria-modal` is absent, and from the
-   focused Cancel two Tabs reach Delete and a **third lands on a background
-   control with the dialog still open** — so a control behind a pending
-   destructive confirmation can be operated. Pinned by *"focus is NOT contained
-   while the confirmation is open (known bug)"* in
-   `e2e/keyboard-focus.spec.ts`. Note for whoever fixes it: adding
-   `aria-modal="true"` alone would **not** fix this. `aria-modal` changes what
-   assistive technology exposes; it does not move the Tab ring. Real containment
-   needs a focus trap as well.
-
-3. **`TaskForm` has no focus management and no `aria-busy`.** The other three
-   islands all set `aria-busy` on their pending control
-   (`TaskCompletionButton.tsx:43`, `TaskDeleteControl.tsx:118`,
-   `TaskEditControl.tsx:178`); `TaskForm` does not, and contains no focus
-   handling at all.
-
-   **Phase 3 measured this: CONFIRMED, and the open question is now answered.**
-   - *Runtime focus:* after a rejected create, disabling the submit button while
-     the action is in flight blurs it and focus falls to **`<body>`**. A keyboard
-     or screen-reader user is left with no focused element and must rediscover
-     the form from the top of the document. `TaskEditControl` solves exactly
-     this with an effect that refocuses the first field at fault; `TaskForm` has
-     no equivalent.
-   - *`aria-busy`:* measured present on all three other islands and **absent on
-     the create submit**, so a screen reader is never told the create request is
-     in flight.
-   Pinned by *"a rejected submit strands focus on the document body (known bug)"*
-   and *"the create submit carries no aria-busy, unlike the other three
-   islands"* in `e2e/keyboard-focus.spec.ts`.
-
-4. **Two behaviours axe cannot see, now covered.** Not defects, but the limit of
-   automated checking, and the reason L3 is not just an axe run. See §11.
+4. **Two behaviours axe cannot see, still covered behaviourally.** Not defects,
+   but the limit of automated checking, and the reason L3 is not just an axe
+   run. See §11.
 
 5. **`README.md` is unmodified `create-next-app` boilerplate.** It gives a wrong
    path (`app/page.tsx`; the file is `src/app/page.tsx`) and Vercel deployment
    instructions that cannot apply to a SQLite app. It documents none of this
    project's architecture or invariants.
 
-6. **No CI and no git remote.** `git remote` is empty. `typecheck`, `lint`, and
-   `build` are manual only, so nothing prevents a broken commit.
+6. **No CI and no git remote.** `git remote` is empty. `typecheck`, `lint`,
+   `test`, and `build` are manual only, so nothing prevents a broken commit.
+   This is the top remaining item — see §14.
 
 7. **`status` and `priority` are unconstrained TEXT columns** (`schema.prisma:14-15`).
    No enum, no `CHECK`. Largely forced — Prisma does not support `enum` on
@@ -390,42 +434,58 @@ reasoning.
    `toggleTaskCompletion` writes `status`. Flagged as a data-integrity gap for
    future code, not a current defect.
 
+8. **Completion toggle is 24x24; every other control is 44x44.** Measured in
+   Phase 3 at both viewports. It meets WCAG 2.2 AA SC 2.5.8, so it is not a
+   failure, but it is a real asymmetry. Unchanged by Phase 4.
+
+9. **The completion toggle takes a full-width line at 375px *and* 1280px**
+   (delete confirmation measured 317/343 and 494/528 of the row). Only its
+   buttons go inline (`sm:flex-none`). Cosmetic; out of V1 scope.
+
+10. **The server-action POST is reported as `net::ERR_ABORTED`** on
+    validation-failure and superseded submissions. Measured and documented in
+    `e2e/fixtures.ts`: the POST completes with HTTP 200 first and the UI state
+    is correct; Chromium reporting that React stopped reading a response it had
+    already applied. Still allowlisted, still never seen on a successful create.
+
 ### DEFERRED / ACCEPTED TECHNICAL DEBT
 
-8. **`globals.css` carries dead `create-next-app` CSS.** A
-   `prefers-color-scheme: dark` block (lines 15-20) sets a near-black background
-   while every component hardcodes `bg-white` / `text-zinc-900`, so dark mode
-   renders inconsistently today. Separately, `body { font-family: Arial }`
-   (line 25) overrides the `--font-sans` theme token, so the Geist fonts are
-   downloaded but never applied. *Action: remove the dead rules. Do **not**
-   implement dark mode — it is out of V1 scope.*
+11. **`globals.css` carries dead `create-next-app` CSS.** A
+    `prefers-color-scheme: dark` block sets a near-black background while every
+    component hardcodes `bg-white` / `text-zinc-900`, so dark mode renders
+    inconsistently today. Separately, `body { font-family: Arial }` overrides
+    the `--font-sans` theme token, so the Geist fonts are downloaded but never
+    applied. *Action: remove the dead rules. Do **not** implement dark mode —
+    it is out of V1 scope.*
 
-9. **`description` nullability is now confirmed reachable — see item 0, which
-   supersedes the earlier "always `""`" note in this file.** Verified by L2:
-   `createTask({ title })` with the field omitted stores `NULL`, while
-   `createTask({ title, description: "" })` stores `""`. Both states are
-   therefore real and distinguishable in the database, and the L2 suite pins
-   both. Harmless in V1.
+12. **`description` nullability is reachable and distinguishable in the
+    database.** Verified by L2: `createTask({ title })` with the field omitted
+    stores `NULL`, while `createTask({ title, description: "" })` stores `""`.
+    Both states are real and pinned by the L2 suite. Harmless in V1. Note the
+    asymmetry with `dueDate`: only the date got a three-valued update contract
+    (§9.13), because only the date had a demonstrated clearing defect; giving
+    `description` the same treatment is a possible future alignment, not a
+    current requirement (`description: ""` already persists).
 
-10. **`DateOnly` is a no-op alias** (`constants.ts:22`): `type DateOnly = string`
+13. **`DateOnly` is a no-op alias** (`constants.ts:22`): `type DateOnly = string`
     provides no type safety, only documentation.
 
-11. **`TaskListItem.priority` is `string`, not the `Priority` union**
+14. **`TaskListItem.priority` is `string`, not the `Priority` union**
     (`queries/tasks.ts:14`), forcing a runtime `Object.hasOwn` lookup in
     `badgeFor`. Honest given finding 7.
 
-12. **Focus-management logic is duplicated** between `TaskEditControl.tsx:38-56`
-    and `TaskDeleteControl.tsx:18-33`. Only two call sites — extracting now
-    would be premature.
+15. **Focus-management logic is now written three times** —
+    `TaskEditControl`, `TaskDeleteControl`, and `TaskForm` each own a small
+    effect. Three similar-but-not-identical instances is still below the
+    threshold where an abstraction pays for itself; the fourth is the time to
+    reconsider.
 
-13. **No `server-only` guard** on `db.ts` / `queries/`. Nothing prevents a
+16. **No `server-only` guard** on `db.ts` / `queries/`. Nothing prevents a
     client component from importing the DB graph; only the bundler's accidental
     correctness prevents it today.
 
-14. **`tsx` is installed but unused** (`package.json:39`). Now definitively
-    unnecessary — Vitest is the approved runner and compiles TS natively, so
-    `tsx` is dead weight. **Not removed in Phase 1 or Phase 2** (removal was
-    out of scope in both); cleanup is deferred. See §12.
+17. **`tsx` is installed but unused.** Vitest compiles TS natively, so `tsx` is
+    dead weight. Removal has now been deferred through three phases; see §12.
 
 ## 11. Testing Status
 
@@ -441,15 +501,15 @@ reasoning.
 **L1** pure validation unit tests · **L2** server-action + query-layer
 integration against real SQLite · **L3** Playwright E2E.
 
-### Permanent tests in the repository: **260** — 84 L1 + 72 L2 + 104 L3
+### Permanent tests in the repository: **275** — 90 L1 + 76 L2 + 109 L3
 
 | Suite | Tests | Database | Mocks |
 |---|---|---|---|
-| `src/lib/validations/task.test.ts` | 84 | none (pure) | none |
-| `src/actions/tasks.test.ts` | 50 | real SQLite | `next/cache` only |
+| `src/lib/validations/task.test.ts` | 90 | none (pure) | none |
+| `src/actions/tasks.test.ts` | 56 | real SQLite | `next/cache` only |
 | `src/lib/queries/tasks.test.ts` | 22 | real SQLite | none |
-| `e2e/task-crud.spec.ts` | 39 | real SQLite (e2e.db) | none — real browser |
-| `e2e/keyboard-focus.spec.ts` | 17 | real SQLite (e2e.db) | none — real browser |
+| `e2e/task-crud.spec.ts` | 43 | real SQLite (e2e.db) | none — real browser |
+| `e2e/keyboard-focus.spec.ts` | 18 | real SQLite (e2e.db) | none — real browser |
 | `e2e/accessibility.spec.ts` | 17 | real SQLite (e2e.db) | none — real browser |
 | `e2e/responsive.spec.ts` | 11 | real SQLite (e2e.db) | none — real browser |
 | `e2e/database-safety.spec.ts` | 20 | reads e2e.db + dev.db | none |
@@ -554,32 +614,35 @@ boots `next build && prisma migrate deploy && next start` on port 3100 and point
 - **The due-date bug (§10 item 0) is now also pinned through the UI**, not just
   at the action layer.
 
-### What axe found: nothing — and that is the finding
+### What axe found: nothing — and the finding still stands
 
 Every application state (empty, populated, create-error, edit open, edit-error,
 delete confirmation, completed) scans **clean**: zero violations, and the broader
 `best-practice` tag set adds nothing. The allowlist is empty, so a future contrast
 or labelling regression fails the build.
 
-**The important consequence: axe reports zero violations while all three
-confirmed defects in §10.1–3 are present in the DOM.** None of them is a rule axe
-implements — they concern live-region *count*, focus *containment*, and where
-focus lands after a failure. `accessibility.spec.ts` proves this rather than
-asserting it: *"axeCannotSeeTheKnownDefects"* builds a page containing all three
-defects and asserts axe still reports nothing. So the behavioural coverage in
-`keyboard-focus.spec.ts` is not redundant with the axe run — it is the only
-coverage those defects have.
+**Phase 3's consequence is now historical but worth remembering: axe reported
+zero violations while the three confirmed defects were present in the DOM**, and
+fixing the defects did not change axe's report at all — none of them is a rule
+axe implements. They concern live-region *count*, focus *containment*, and where
+focus lands after a failure. The former `axeCannotSeeTheKnownDefects`
+demonstration now asserts the corrected semantics instead (one assertive region,
+`aria-modal` present), but the behavioural coverage in `keyboard-focus.spec.ts`
+remains the only coverage that class of defect has.
 
-### Measured, not assumed (Phase 3 findings)
+### Measured, not assumed (Phase 3 findings — the first three are now fixed)
 
-- **Focus after a rejected create lands on `<body>`.** This answers the question
-  Phase 1 left open. The create form has no focus management; the edit island
-  does. Pinned as a regression marker.
-- **The create submit has no `aria-busy`;** the other three islands do.
-- **A rejected create mounts 2 application-authored assertive live regions.** The
-  third `role="alert"` match is Next.js's own `#__next-route-announcer__`, which
-  exists because the action revalidates the route. Tests count the application's
-  two, scoped to the form.
+- ~~**Focus after a rejected create lands on `<body>`.**~~ **Fixed in Phase 4**;
+  focus now moves to the first invalid field. The measurement is what made the
+  fix provable — the mechanism (disabling the in-flight submit blurs it) had to
+  be observed before it could be corrected.
+- ~~**The create submit has no `aria-busy`.**~~ **Fixed in Phase 4**, matching
+  the other three islands; the whole form also marks itself busy.
+- ~~**A rejected create mounts 2 application-authored assertive live regions.**~~
+  **Fixed in Phase 4**; field errors are described-by text and exactly one
+  application alert remains (asserted). Next.js's own
+  `#__next-route-announcer__` still exists because revalidation updates the
+  route — framework markup, not application-authored.
 - **The server-action POST is reported as `net::ERR_ABORTED`.** Measured: it
   completes with HTTP 200 first, the resulting UI state is correct, and it only
   appears on validation-failure and superseded submissions — never on a
@@ -626,10 +689,12 @@ coverage those defects have.
 - **Chromium only.** No Firefox or WebKit project, and no mobile-browser project;
   responsive coverage changes the viewport, not the engine.
 - **No CI, so `test` / `e2e` / `typecheck` / `lint` are still unenforced** (§10.6).
-- **The three defects in §10.1–3 remain unfixed** and are pinned by tests that
-  assert today's behaviour, so the suite is green and the defects stay visible.
-- **The due-date clearing bug (§10 item 0) is unfixed** for the same reason.
-- `tsx` remains installed and unused (§14).
+  This is the highest-value remaining item.
+- The Phase 3 regression markers for the §10 accessibility defects and the
+  due-date bug have been **inverted into tests of the fixed behaviour**; the
+  names now describe the fix, and their comments preserve the original
+  measurements.
+- `tsx` remains installed and unused (§17).
 
 
 ## 12. Deferred Work
@@ -649,7 +714,7 @@ Deliberately postponed. **Do not add these without explicit approval.**
 | FTS / search index | Decide when search ships. |
 | Server log redaction | Before any hosted deployment. |
 | Multi-step `dueDate` (times, reminders) | Not in V1. |
-| `tsx` | **Unused**; remains installed only because removal was out of scope in testing Phases 1 and 2. Marked for cleanup in a future "tooling cleanup" PR, after the testing phases are complete. |
+| `tsx` | **Unused**; removal deferred through three phases. Do it in the CI-enforcement phase or a dedicated tooling PR. |
 
 ## 13. Current Constraints
 
@@ -674,20 +739,21 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-Implement TESTING PHASE 4 — CI enforcement of the permanent suite.
+Implement CI ENFORCEMENT of the permanent suite (the item formerly labelled
+"testing Phase 4"; the defect-fix work just completed took the Phase 4 label,
+so refer to this as the CI phase to avoid ambiguity).
 
-Phase 3 is complete and committed. Phase 4 has NOT been started.
+Phase 4 (defect fixes) is complete and committed. CI has NOT been started.
 
-All three testing layers now exist and pass locally: 260 tests
-(84 L1 + 72 L2 + 104 L3), plus typecheck, lint and build.
+All three testing layers now exist and pass locally: 275 tests
+(90 L1 + 76 L2 + 109 L3), plus typecheck, lint and build.
 
-Highest-value target, and the reason this phase exists (§10.6):
-  Nothing enforces any of it. `git remote` is empty, `test` / `e2e` /
-  `typecheck` / `lint` are manual only, and the L2 database safety gate in
-  tests/setup/database-env.ts protects a developer's machine while doing
-  nothing in CI, where the real risk is different.
+The reason this phase exists (§10.6): nothing enforces any of it.
+`git remote` is empty, `test` / `e2e` / `typecheck` / `lint` are manual only,
+and the L2 database safety gate in tests/setup/database-env.ts protects a
+developer's machine while doing nothing in CI, where the real risk differs.
 
-Things Phase 4 must get right:
+Things the CI phase must get right:
   - Decide the CI provider and pin the Node version to match the local toolchain.
   - Install Playwright's browser with dependencies in the CI image; a bare
     `npx playwright install` is not enough on Linux.
@@ -698,14 +764,12 @@ Things Phase 4 must get right:
   - Make `dev.db` protection explicit in CI, where there is no developer .env
     to accidentally point at.
 
-Then Phase 5: tooling cleanup. `tsx` is installed and unused (§10.14) and can go
-now that the testing phases are done.
+Then tooling cleanup: `tsx` is installed and unused (§10.17) and can go once
+CI lands.
 
 Constraints:
-  - Do NOT fix the accessibility defects in §10.1-3. They are pinned by
-    regression markers; fixing them is separate, approved work. When one is
-    fixed, invert its test rather than deleting it.
-  - Do NOT fix the due-date clearing bug (§10 item 0) as a side effect.
+  - Do NOT redesign the Phase 4 fixes. If a fix's behaviour needs to change,
+    update its tests with the same care documented in §4.
   - Do NOT add a git remote or push anything unless explicitly asked.
   - Do NOT weaken the E2E database guard in e2e/lib/e2e-database.ts. It
     hard-fails on import by design.
@@ -892,7 +956,7 @@ Recorded so they are not repeated:
   assertions use explicit `createdAt` values and a deliberate same-instant tie
   for the `id` tie-break, never insertion order or cuid monotonicity.
 
-### Phase 3 handoff notes (new)
+### Phase 3 handoff notes
 
 **What is where**
 
@@ -919,24 +983,97 @@ Scripts: `npm run e2e`, `npm run e2e:report`, and `e2e:build` / `e2e:migrate` /
   alternative is a per-worker database, which is not worth it at this size.
 - **Locators are role- and name-based.** This is what makes the accessibility
   assertions meaningful — `getByLabel` and `getByRole` only resolve through the
-  accessibility tree, so they fail if the wiring regresses.
+  accessibility tree, so they fail if the wiring regresses. (Phase 4 re-learned
+  the substring rule the hard way: `openDeleteConfirmation(page, "Unreachable")`
+  strict-mode-collided with a task named "Unreachable target". Names that are
+  prefixes of other names will bite; keep test data disjoint.)
 - **Known defects are asserted, not suppressed, and not left failing.** Each has
   a test named `known bug` that pins today's behaviour. A permanently red test
   gets ignored or deleted, which would lose the evidence; a green test with a
   truthful name keeps the defect visible *and* keeps the suite usable as a gate.
-  When one is fixed, flip the assertion.
+  When one is fixed, flip the assertion. Phase 4 did exactly that for all five
+  markers; each now tests the fixed behaviour and preserves the original
+  measurement in its comment.
 - **No test-only hooks were added to the application.** Nothing in `src/` knows
   the E2E suite exists.
+
+### Phase 4 handoff notes (new)
+
+**The due-date contract details that must not drift:**
+
+- The three-valued distinction lives in *three* places that must agree:
+  `updatableDueDateSchema` (what may arrive), `updateTask` (what reaches
+  Prisma), and `TaskEditControl` (what the UI sends). The L1 suite names the
+  contract explicitly ("update due-date contract: omitted vs null vs date") so
+  a future edit that breaks one layer fails a test with the contract in its
+  name.
+- `""` → `undefined` is kept on update on purpose. A form-urlencoded client
+  cannot distinguish "blank field" from "absent field", so blank keeps the
+  historical preserve meaning and *null* is the clear signal. Do not "simplify"
+  this to treating blank as a clear: it would make API clients that omit the
+  key wipe data.
+- Zod keeps the `dueDate` key present-with-`undefined` when `""` is folded,
+  while a genuinely omitted key is absent (the Phase 1 `JSON.stringify`
+  lesson). Only the *value* reaches the action, so the behaviour is identical;
+  the L1 test asserts value semantics, not key presence, on the blank path.
+- The edit form always sends `null` for a blanked date input — it cannot send
+  "omitted", because `<input type="date">` reports `""` for both never-set and
+  cleared. The preserve case therefore remains an API-client capability, and
+  the L2/L3 preserve tests are what guarantee a UI-only save cannot wipe a
+  date silently. (A UI consequence: an edit save always writes the date column.
+  That is by design — the form is a whole-form editor.)
+- `createTaskSchema` keeps the collapsed date handling on purpose; do not add
+  `.nullable()` there beyond the existing null→undefined fold. Create has no
+  stored value, so "clear" is meaningless and the extra null-branch would only
+  widen the create surface.
+
+**The create form submission change is load-bearing for two fixes at once.**
+Moving from `<form action={formAction}>` to `onSubmit` + `preventDefault` +
+`useTransition` fixed both the input-loss defect and the focus-stranding
+defect, because React's automatic reset of action-driven forms was also what
+made the form unable to react to a failure. The successful-create reset still
+works (the field group is keyed on the created id) and is still asserted.
+
+**Focus containment details worth knowing:**
+
+- The Tab wrap intercepts *forward from Delete* and *Shift+Tab from Cancel* —
+  the edges — while Cancel→Delete follows natural order. Do not also intercept
+  the natural steps; intercepting every Tab creates a fight with the browser's
+  own movement.
+- The `focusout` rescue is deferred with `setTimeout(0)` because `focusout`
+  fires before the browser has finished moving focus; synchronously,
+  `activeElement` is still the element inside the dialog that is about to lose
+  it. It also rescues focus stranded on `<body>` (e.g. after the Delete button
+  disables mid-focus), because stranded focus inside an open modal is exactly
+  what a modal must prevent.
+- Delete is disabled while pending, so Tab from Cancel *skips* it; the rescue
+  returns focus to Cancel. That was accepted rather than adding "keep focus on
+  the disabled button" complexity — the dialog still contains focus.
+- Wrap uses `.focus()` on the other button, which is what the browser's own
+  focus movement uses; no focus-visible polyfill was added, and the existing
+  focus-ring CSS covers both cases.
+
+**Testing details from this phase:**
+
+- The create-form `aria-busy` during a real request is observed with
+  `page.waitForFunction` started *before* the click (the state is transient);
+  a mutation-observer-in-`evaluate` approach was tried first and produced a
+  type error (an `evaluate` returning a function is not callable).
+- `dev.db` was byte-identical (same md5, same mtime) across the full L2 + L3 +
+  build verification, and no migration was created.
 
 **Answers to the questions Phase 1 and 2 left open**
 
 - Does the `revalidatePath` refresh actually reach the screen? **Yes** — proven in
   `task-crud.spec.ts` by reading the count and the new row after each mutation,
   with no manual reload.
-- Where does focus go after a rejected create? **To `<body>`.** See §10 item 3.
-- Does the delete dialog contain focus? **No.** Two Tabs from Cancel reach
-  Delete, the third escapes behind the still-open dialog. See §10 item 2.
-- Does the create form expose `aria-busy`? **No**; the other three islands do.
+- Where did focus go after a rejected create? **To `<body>`** — answered by
+  measurement in Phase 3 and **fixed in Phase 4**; focus now moves to the first
+  invalid field.
+- Does the delete dialog contain focus? **It did not** — **fixed in Phase 4**;
+  Tab cycles in both directions stay inside and escaped focus is pulled back.
+- Does the create form expose `aria-busy`? **It did not; it does now**, like the
+  other three islands.
 
 **If you extend L3**
 

@@ -152,6 +152,19 @@ export async function deleteTask(
  * rather than spread, so adding a column to the schema can never silently make
  * it client-writable.
  *
+ * `dueDate` is deliberately three-valued, and the distinction is load-bearing:
+ *
+ *   undefined -> the field is left out of `data`, so Prisma keeps the
+ *                stored value ("omitted means unchanged");
+ *   null      -> written as a real null, clearing the column;
+ *   "YYYY-MM-DD" -> written as given.
+ *
+ * Building `data` with `dueDate: input.dueDate` unconditionally would be
+ * correct here as long as the field stays conditional (a spread of the
+ * payload would also work today) — but the explicit `if` keeps the three
+ * cases visible at the trust boundary instead of relying on Prisma's
+ * `undefined`-means-skip convention going unnoticed.
+ *
  * Completion state is untouched: `status` and `completedAt` are absent from
  * both the schema and this payload, which keeps `toggleTaskCompletion` the only
  * writer of those columns and leaves a completed task completed after an edit.
@@ -171,13 +184,30 @@ export async function updateTask(
 
   const { taskId, title, description, priority, dueDate } = validation.data;
 
+  // Field by field, never a spread. `dueDate` is added only when the client
+  // said something about it: an absent field must not reach Prisma, where it
+  // would be read as "write nothing" — that is the preserve case — while a
+  // real null must survive into `data` so the column is cleared.
+  // `description` keeps its historical shape: an absent one stays undefined,
+  // which Prisma also reads as "leave the stored value unchanged".
+  const data: {
+    title: string;
+    description?: string | null;
+    priority: string;
+    dueDate?: string | null;
+  } = { title, description, priority };
+
+  if (dueDate !== undefined) {
+    data.dueDate = dueDate;
+  }
+
   try {
     // `updateMany` matches on id and reports how many rows changed, so a task
     // deleted after the list was rendered surfaces as a count of 0 instead of a
     // thrown Prisma error.
     const result = await prisma.task.updateMany({
       where: { id: taskId },
-      data: { title, description, priority, dueDate },
+      data,
     });
 
     if (result.count === 0) {

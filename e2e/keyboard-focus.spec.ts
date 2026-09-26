@@ -128,65 +128,59 @@ test.describe("create form keyboard access", () => {
     }
   });
 
-  test("a rejected submit strands focus on the document body (known bug)", async ({
+  test("a rejected submit moves focus to the first invalid field", async ({
     page,
   }) => {
-    // KNOWN DEFECT (PROJECT_STATE 10.1-3) — asserts the *measured, broken*
-    // behaviour on purpose, NOT intended behaviour.
-    //
-    // Phase 1 recorded that `TaskForm` has no focus management while the other
-    // three islands do, and said the runtime behaviour "must be measured, not
-    // assumed". Measured: disabling the submit button while the action is in
-    // flight blurs it, and the browser drops focus to <body>. A keyboard or
-    // screen-reader user who submits an invalid task is left with no focused
-    // element at all and has to rediscover the form from the top of the
-    // document.
-    //
-    // `TaskEditControl` solves exactly this with an effect that refocuses the
-    // first field at fault; the create form has no equivalent.
-    //
-    // This asserts the bug rather than failing, so the suite stays green and the
-    // defect stays visible. When it is fixed, flip this to expect a real
-    // control to hold focus — the test name says "known bug" for that reason.
+    // Fixed in Phase 4; formerly a known-defect marker asserting that focus
+    // stranded on `<body>` after a rejected create. The create form now moves
+    // focus to the first invalid field — the same behaviour the edit island
+    // already had — so a keyboard or screen-reader user is put exactly where
+    // the correction is needed instead of at the top of the document.
     const form = createForm(page);
 
     await form.getByRole("button", { name: "Create task" }).click();
     await expect(page.getByText("Title is required")).toBeVisible();
 
-    const focused = await focusedElement(page);
-    expect(
-      focused.tag,
-      "focus is no longer lost to the document — update this test to assert the fix",
-    ).toBe("BODY");
+    await expect(titleInput(form)).toBeFocused();
   });
 
-  test("the create submit carries no aria-busy, unlike the other three islands", async ({
+  test("the create form exposes a pending/busy state like the other three islands", async ({
     page,
   }) => {
-    // KNOWN GAP (PROJECT_STATE 10.1-3) — documents an inconsistency rather than
-    // asserting correct behaviour. Measured: `aria-busy` is present on the
-    // edit save button, the delete confirm button and the completion button,
-    // and absent on the create submit button, so a screen reader is not told
-    // that the create request is in flight.
+    // Fixed in Phase 4; formerly a known-gap marker noting that the create
+    // submit carried no aria-busy. The submit button now carries aria-busy
+    // like the edit save, delete confirm and completion controls, the whole
+    // form marks itself busy while the request is in flight, and the label
+    // says what is happening. Asserted here as a regression on the fix, with
+    // the other islands asserted alongside so the pattern cannot drift apart
+    // again.
     const createSubmit = createForm(page).getByRole("button", { name: "Create task" });
-    expect(await createSubmit.getAttribute("aria-busy")).toBeNull();
+    await expect(createSubmit).toHaveAttribute("aria-busy", "false");
 
-    await createTask(page, { title: "Compare islands" });
+    // Start watching before the click: aria-busy flips on while the action is
+    // in flight and back off when it settles, so it is observable only
+    // concurrently with the request. waitForFunction polls the live DOM.
+    const sawBusy = page
+      .waitForFunction(
+        () =>
+          Array.from(
+            document.querySelectorAll('form button[type="submit"]'),
+          ).some((button) => button.getAttribute("aria-busy") === "true"),
+        { timeout: 5_000 },
+      )
+      .then(() => true)
+      .catch(() => false);
 
-    const row = taskRow(page, "Compare islands");
-    expect(await row.getByRole("button", { name: "Mark task complete" }).getAttribute("aria-busy")).toBe(
-      "false",
+    const form = createForm(page);
+    await titleInput(form).fill("Busy state check");
+    await createSubmit.click();
+
+    expect(await sawBusy, "no control exposed aria-busy during the create").toBe(
+      true,
     );
 
-    const edit = await openEditForm(page, "Compare islands");
-    expect(await edit.getByRole("button", { name: "Save changes" }).getAttribute("aria-busy")).toBe(
-      "false",
-    );
-
-    const dialog = await openDeleteConfirmation(page, "Compare islands");
-    expect(
-      await dialog.getByRole("button", { name: "Delete", exact: true }).getAttribute("aria-busy"),
-    ).toBe("false");
+    await expect(taskRow(page, "Busy state check")).toBeVisible();
+    await expect(createSubmit).toHaveAttribute("aria-busy", "false");
   });
 
   test("a double submit cannot create two tasks", async ({ page }) => {
@@ -373,40 +367,75 @@ test.describe("delete confirmation keyboard and focus", () => {
     await expect(page.locator(`#${describedBy}`)).toContainText("Named dialog");
   });
 
-  test("focus is NOT contained while the confirmation is open (known bug)", async ({
-    page,
-  }) => {
-    // KNOWN DEFECT (PROJECT_STATE 10.1-2) — regression marker, NOT intended
-    // behaviour. `role="alertdialog"` is declared without `aria-modal`, and
-    // nothing traps Tab, so focus walks straight out of the open destructive
-    // dialog and into the controls behind it.
-    //
-    // Measured: from Cancel, two Tabs reach the Delete button and a third lands
-    // on a background control with the dialog still open. A background control
-    // can therefore be operated while a destructive confirmation is pending.
-    //
-    // Note for whoever fixes this: adding `aria-modal="true"` alone would NOT
-    // fix it. aria-modal changes what assistive technology exposes; it does not
-    // move the Tab ring. Real containment needs a focus trap as well.
-    await createTask(page, { title: "Escapable" });
+  test("focus is contained while the confirmation is open", async ({ page }) => {
+    // Fixed in Phase 4; formerly a known-defect marker asserting that Tab
+    // walked out of the open dialog onto a background control. Containment is
+    // real now, not just announced: aria-modal is declared for assistive
+    // technology, Tab and Shift+Tab wrap between the dialog's controls, and a
+    // focusout effect returns escaped focus to Cancel.
+    await createTask(page, { title: "Contained" });
 
-    const dialog = await openDeleteConfirmation(page, "Escapable");
-    expect(await dialog.getAttribute("aria-modal")).toBeNull();
+    const dialog = await openDeleteConfirmation(page, "Contained");
+    await expect(dialog).toHaveAttribute("aria-modal", "true");
 
     await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
 
+    // Cancel -> Delete -> wraps back to Cancel (previously escaped behind).
     await page.keyboard.press("Tab");
     await expect(dialog.getByRole("button", { name: "Delete", exact: true })).toBeFocused();
     expect((await focusedElement(page)).insideDialog).toBe(true);
 
     await page.keyboard.press("Tab");
-    const escaped = await focusedElement(page);
-
-    expect(escaped.insideDialog, "focus stayed inside the dialog — defect is gone").toBe(
-      false,
-    );
-    // The dialog is still open, so a background control is now focused.
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    expect((await focusedElement(page)).insideDialog).toBe(true);
     await expect(page.getByRole("alertdialog")).toBeVisible();
-    await expect(taskRow(page, "Escapable")).toBeVisible();
+
+    // Shift+Tab from Cancel wraps forward to Delete, staying inside.
+    await page.keyboard.press("Shift+Tab");
+    await expect(dialog.getByRole("button", { name: "Delete", exact: true })).toBeFocused();
+    expect((await focusedElement(page)).insideDialog).toBe(true);
+  });
+
+  test("background controls cannot receive keyboard focus while the confirmation is open", async ({
+    page,
+  }) => {
+    // The containment requirement that matters most: a control behind a
+    // pending destructive confirmation must be unreachable by keyboard.
+    // (Task names deliberately share no prefix: role-name locators match on
+    // substrings, and one name being a prefix of the other would resolve two
+    // rows in strict mode.)
+    await createTask(page, { title: "Ghosted" });
+    await createTask(page, { title: "Background row" });
+
+    const dialog = await openDeleteConfirmation(page, "Ghosted");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+    // A whole cycle of Tabs in both directions must never leave the dialog.
+    for (let press = 0; press < 8; press += 1) {
+      await page.keyboard.press("Tab");
+      expect(
+        (await focusedElement(page)).insideDialog,
+        `forward Tab ${press + 1} escaped the open dialog`,
+      ).toBe(true);
+    }
+
+    for (let press = 0; press < 8; press += 1) {
+      await page.keyboard.press("Shift+Tab");
+      expect(
+        (await focusedElement(page)).insideDialog,
+        `reverse Tab ${press + 1} escaped the open dialog`,
+      ).toBe(true);
+    }
+
+    // And direct programmatic focus (e.g. an autofocusing background widget)
+    // is pulled back in.
+    await page.evaluate(() => {
+      (document.querySelector('button[aria-label="Edit task: Background row"]') as HTMLElement).focus();
+    });
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+    // The dialog is still open and the background task untouched.
+    await expect(page.getByRole("alertdialog")).toBeVisible();
+    await expect(taskRow(page, "Background row")).toBeVisible();
   });
 });

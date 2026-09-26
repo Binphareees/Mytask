@@ -223,31 +223,24 @@ test.describe("validation UX", () => {
     );
   });
 
-  test("LOSES typed input when the create submission is rejected (known bug)", async ({
+  test("retains typed input when the create submission is rejected", async ({
     page,
   }) => {
-    // KNOWN DEFECT — regression marker, NOT intended behaviour.
+    // Former regression marker for a CONFIRMED defect, fixed in Phase 4.
     //
-    // `TaskForm` submits through `<form action={formAction}>`. React resets an
-    // uncontrolled form once the action *resolves*, whether it succeeded or
-    // not, so a rejected submit silently discards everything the user typed.
-    // Measured: 10/10 runs lost the description. The document is not reloaded
-    // (the RSC update is soft), and the field group does not remount, so this
-    // is React's form reset, not a revalidation artefact.
-    //
-    // The edit form does NOT have this problem: `TaskEditControl` uses a plain
-    // `onSubmit` + `preventDefault()`, which React never auto-resets. That
-    // asymmetry is asserted below, and it is what makes this a defect rather
-    // than a design choice.
-    //
-    // When this is fixed, invert the assertion to expect the value retained.
+    // `TaskForm` used to submit through `<form action={formAction}>`, and
+    // React resets an uncontrolled form once the action resolves — success or
+    // failure — so a rejected submit silently discarded everything the user
+    // had typed. The form now submits through `onSubmit` + `preventDefault`,
+    // the same mechanism the edit island always used, so a failed create
+    // keeps every typed value and can be corrected instead of retyped.
     const form = createForm(page);
 
     await descriptionInput(form).fill("precious notes");
     await form.getByRole("button", { name: "Create task" }).click();
     await expect(page.getByText("Title is required")).toBeVisible();
 
-    await expect(descriptionInput(form)).toHaveValue("");
+    await expect(descriptionInput(form)).toHaveValue("precious notes");
   });
 
   test("the edit form does keep typed input when a save is rejected", async ({ page }) => {
@@ -266,29 +259,28 @@ test.describe("validation UX", () => {
     await expect(descriptionInput(form)).toHaveValue("precious edit notes");
   });
 
-  test("produces exactly two application live regions for one invalid field", async ({
+  test("one rejected submit announces through a single assertive live region", async ({
     page,
   }) => {
-    // KNOWN DEFECT (PROJECT_STATE 10.1-1) — regression marker, not intended
-    // behaviour. One rejected submit mounts a field-level role="alert" *and* the
-    // form-level banner, so screen readers announce two assertive live regions
-    // at once, the least useful one first.
+    // Fixed in Phase 4; formerly a known-defect marker asserting two
+    // application-authored assertive regions for one invalid field.
     //
-    // Counted inside the create form on purpose: Next.js injects a third
-    // assertive region of its own, `#__next-route-announcer__`, which exists
-    // because revalidation updates the route. That is framework markup, not
-    // something this application authors, so it is excluded rather than
-    // counted.
+    // Field errors are now plain text linked to their controls with
+    // aria-describedby, so the only application-authored assertive region on a
+    // rejected submit is the form-level banner. Focus moves to the first
+    // invalid field (asserted in keyboard-focus.spec.ts), so the field's own
+    // message is the next thing a screen-reader user hears without an extra
+    // interrupting region.
     //
-    // axe cannot detect this: it has no rule about live-region count, which is
-    // why it has to be asserted here. When the duplicate is fixed this test
-    // should be inverted to expect 1.
+    // Counted inside the create form on purpose: Next.js injects its own
+    // `#__next-route-announcer__` (`role="alert"`), which is framework markup,
+    // not something this application authors.
     const form = createForm(page);
 
     await form.getByRole("button", { name: "Create task" }).click();
     await expect(page.getByText("Title is required")).toBeVisible();
 
-    await expect(form.getByRole("alert")).toHaveCount(2);
+    await expect(form.getByRole("alert")).toHaveCount(1);
   });
 
   test("the errors are announced assertively, not politely", async ({ page }) => {
@@ -511,30 +503,100 @@ test.describe("edit", () => {
     );
   });
 
-  test("CANNOT clear an existing due date (known bug, regression marker)", async ({ page }) => {
-    // KNOWN DEFECT (PROJECT_STATE 10.1-0) — regression marker, NOT intended
-    // behaviour. A blank date field validates to `undefined`, and Prisma reads
-    // `undefined` as "leave this column unchanged", so the save reports
-    // success, the row visibly updates, and the old date is still there.
-    //
-    // L2 proved the same mechanism directly against the database. This test
-    // pins the user-visible consequence. When the bug is fixed, invert the
-    // final assertion to expect the "Due" text to be gone — do not delete it.
+  test("clears an existing due date when the field is emptied", async ({ page }) => {
+    // The former known-bug marker, inverted: the save used to report success,
+    // refresh the row, and silently keep the old date, because a blank field
+    // normalised to `undefined` — which Prisma reads as "leave the column
+    // unchanged". The edit island now sends an explicit null for a blanked
+    // date field, the update schema accepts null only on the update path, and
+    // the action writes it as a real SQL NULL. The three-valued contract is
+    // proven at L1/L2; this pins the user-visible consequence end to end.
     await page.goto("/");
-    await createTask(page, { title: "Sticky date", dueDate: "2026-12-31" });
+    await createTask(page, { title: "Cleared date", dueDate: "2026-12-31" });
 
-    const form = await openEditForm(page, "Sticky date");
-    await titleInput(form).fill("Sticky date, renamed");
+    const form = await openEditForm(page, "Cleared date");
+    await titleInput(form).fill("Cleared date, renamed");
     await dueDateInput(form).fill("");
     await form.getByRole("button", { name: "Save changes" }).click();
 
     await expect(editForm(page)).toHaveCount(0);
 
-    const row = taskRow(page, "Sticky date, renamed");
+    const row = taskRow(page, "Cleared date, renamed");
     // The title change proves the save really was applied...
     await expect(row).toBeVisible();
-    // ...and the due date survived anyway.
-    await expect(row.getByText("2026-12-31")).toBeVisible();
+    // ...and the date is gone with it.
+    await expect(dueDateText(row)).toHaveCount(0);
+    await expect(row.getByText("2026-12-31")).toHaveCount(0);
+  });
+
+  test("keeps the existing due date when the field is left untouched", async ({
+    page,
+  }) => {
+    // Guard on the fix above: clearing must not have come at the cost of the
+    // preserve case. A user who opens the edit form and only renames the task
+    // must not lose the stored date.
+    await page.goto("/");
+    await createTask(page, { title: "Kept date", dueDate: "2026-10-01" });
+
+    const form = await openEditForm(page, "Kept date");
+    await titleInput(form).fill("Kept date, renamed");
+    await form.getByRole("button", { name: "Save changes" }).click();
+
+    await expect(editForm(page)).toHaveCount(0);
+    await expect(dueDateText(taskRow(page, "Kept date, renamed"))).toHaveText(
+      "Due 2026-10-01",
+    );
+  });
+
+  test("replaces an existing due date with a different one", async ({ page }) => {
+    await page.goto("/");
+    await createTask(page, { title: "Moved date", dueDate: "2026-10-01" });
+
+    const form = await openEditForm(page, "Moved date");
+    await dueDateInput(form).fill("2026-11-15");
+    await form.getByRole("button", { name: "Save changes" }).click();
+
+    await expect(editForm(page)).toHaveCount(0);
+    await expect(dueDateText(taskRow(page, "Moved date"))).toHaveText(
+      "Due 2026-11-15",
+    );
+  });
+
+  test("a cleared due date stays cleared after a reload", async ({ page }) => {
+    // The cleared state is server data, not a transient DOM edit: after a full
+    // reload the row must still show no date.
+    await page.goto("/");
+    await createTask(page, { title: "Reload proof", dueDate: "2026-10-01" });
+
+    const form = await openEditForm(page, "Reload proof");
+    await dueDateInput(form).fill("");
+    await form.getByRole("button", { name: "Save changes" }).click();
+
+    await expect(editForm(page)).toHaveCount(0);
+    await expect(dueDateText(taskRow(page, "Reload proof"))).toHaveCount(0);
+
+    await page.reload();
+    await expect(taskRow(page, "Reload proof")).toBeVisible();
+    await expect(dueDateText(taskRow(page, "Reload proof"))).toHaveCount(0);
+  });
+
+  test("a successful save collapses the form and returns focus to the edit trigger", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await createTask(page, { title: "Settle focus", dueDate: "2026-10-01" });
+
+    const form = await openEditForm(page, "Settle focus");
+    await dueDateInput(form).fill("2026-11-15");
+    await form.getByRole("button", { name: "Save changes" }).click();
+
+    await expect(editForm(page)).toHaveCount(0);
+    await expect(dueDateText(taskRow(page, "Settle focus"))).toHaveText(
+      "Due 2026-11-15",
+    );
+    await expect(
+      page.getByRole("button", { name: "Edit task: Settle focus" }),
+    ).toBeFocused();
   });
 
   test("cancel discards changes and leaves the task untouched", async ({ page }) => {

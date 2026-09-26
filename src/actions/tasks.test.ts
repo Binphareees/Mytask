@@ -273,26 +273,74 @@ describe("updateTask changes only the editable fields", () => {
     expect((await row(id)).dueDate).toBe("2026-12-31");
   });
 
-  it("CANNOT clear an existing due date by sending an empty string (known bug)", async () => {
-    // Regression marker for a CONFIRMED defect, not intended behaviour.
-    //
-    // A blank due date is normalised to `undefined` by the validation layer
-    // (see "normalizes a blank due date to undefined" in the L1 suite), and
-    // Prisma reads `undefined` as "leave this column unchanged". So clearing
-    // the date field in the edit form silently keeps the old date.
-    //
-    // Verified mechanism: an explicit Prisma-level `null` does clear the
-    // column, and an omitted `dueDate` also leaves it alone. Only the
-    // `"" -> undefined -> unchanged` path is broken.
-    //
-    // When the application is fixed, this test should be inverted to expect
-    // `null`. Do not "fix" it by deleting the test.
+  it("preserves the stored due date when the update omits dueDate", async () => {
+    // Phase 4 regression test: "omitted means unchanged" must keep working now
+    // that clearing exists. This is the former known-bug test's neighbour; the
+    // bug itself was that *every* blank collapsed into this path.
+    const id = await createTaskRow({ title: "x", dueDate: "2026-10-01" });
+
+    const result = await updateTask({ taskId: id, title: "renamed", priority: "low" });
+
+    expect(result.success).toBe(true);
+    expect((await row(id)).dueDate).toBe("2026-10-01");
+  });
+
+  it("replaces the stored due date with a new date", async () => {
+    const id = await createTaskRow({ title: "x", dueDate: "2026-10-01" });
+
+    const result = await updateTask({
+      taskId: id,
+      title: "x",
+      dueDate: "2026-11-15",
+      priority: "low",
+    });
+
+    expect(result.success).toBe(true);
+    expect((await row(id)).dueDate).toBe("2026-11-15");
+  });
+
+  it("clears the stored due date when the update sends an explicit null", async () => {
+    // The Phase 4 fix for the Phase 2 known bug: a blank field used to
+    // normalise to `undefined`, which Prisma reads as "leave the column
+    // unchanged", so a date could never be removed. The edit form now sends
+    // null for a blanked date field, and null must survive validation and the
+    // action into a real SQL NULL.
+    const id = await createTaskRow({ title: "x", dueDate: "2026-10-01" });
+
+    const result = await updateTask({ taskId: id, title: "x", dueDate: null, priority: "low" });
+
+    expect(result.success).toBe(true);
+    expect((await row(id)).dueDate).toBeNull();
+  });
+
+  it("preserves the stored due date when dueDate is an empty string", async () => {
+    // The former regression marker, inverted. The blank string keeps the
+    // "field omitted / unchanged" meaning; clearing is the explicit null's
+    // job. See the L1 "update due-date contract" suite for the distinction.
     const id = await createTaskRow({ title: "x", dueDate: "2026-12-31" });
 
     const result = await updateTask({ taskId: id, title: "x", dueDate: "", priority: "low" });
 
     expect(result.success).toBe(true);
     expect((await row(id)).dueDate).toBe("2026-12-31");
+  });
+
+  it("cannot be tricked into clearing the column with a non-null falsy dueDate", async () => {
+    // Containment for the new clear path: only a validated real null may
+    // reach the database as null. Any other junk is rejected outright.
+    for (const hostile of [0, false, "null", {}]) {
+      const id = await createTaskRow({ title: "x", dueDate: "2026-10-01" });
+
+      const result = await updateTask({
+        taskId: id,
+        title: "x",
+        dueDate: hostile,
+        priority: "low",
+      });
+
+      expect(result.success, `input ${String(hostile)} should be rejected`).toBe(false);
+      expect((await row(id)).dueDate).toBe("2026-10-01");
+    }
   });
 
   it("still allows a due date to be added to a task that had none", async () => {

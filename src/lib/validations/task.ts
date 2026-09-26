@@ -21,15 +21,45 @@ function isRealCalendarDate(value: string): boolean {
   );
 }
 
+/**
+ * The date-string rules shared by every due-date schema: the value must be a
+ * real calendar date in YYYY-MM-DD form, and it survives validation as a
+ * plain string, never a Date or timestamp.
+ */
+const dueDateValueSchema = z
+  .string({ error: "Due date must be a valid date" })
+  .refine(isRealCalendarDate, {
+    error: "Due date must be a real calendar date in YYYY-MM-DD format",
+  });
+
+/**
+ * Create has no existing value to preserve, so blank, null and omitted all
+ * mean the same thing: no due date. Only an exact empty string is folded;
+ * padded whitespace is rejected rather than silently repaired.
+ */
 const optionalDueDateSchema = z.preprocess(
   (value) =>
     value === undefined || value === null || value === "" ? undefined : value,
-  z
-    .string({ error: "Due date must be a valid date" })
-    .refine(isRealCalendarDate, {
-      error: "Due date must be a real calendar date in YYYY-MM-DD format",
-    })
-    .optional(),
+  dueDateValueSchema.optional(),
+);
+
+/**
+ * Update carries a three-valued contract, because an edit must be able to
+ * leave a stored date alone, replace it, or clear it:
+ *
+ *   undefined (field omitted) -> leave the stored value unchanged
+ *   null                      -> explicitly clear the stored value
+ *   "YYYY-MM-DD"              -> replace the stored value
+ *
+ * Only an exact empty string is folded to `undefined`. It is what a
+ * form-urlencoded client sends for a blank field, and there is no way to tell
+ * that apart from a field the client never intended to send, so it keeps the
+ * historical "omitted" meaning. A client that wants to clear the date sends
+ * an explicit null (the edit form does).
+ */
+const updatableDueDateSchema = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  dueDateValueSchema.nullable().optional(),
 );
 
 export const createTaskSchema = z.object({
@@ -161,9 +191,15 @@ export function validateDeleteTaskInput(
  * An update carries the task id plus exactly the four editable fields.
  *
  * The field rules are lifted from {@link createTaskSchema} so an edit cannot
- * drift from a create, with one deliberate difference: `priority` is required
- * here instead of defaulting. A defaulted priority would let a client that
- * omitted the field silently reset an existing task to "medium".
+ * drift from a create, with two deliberate differences:
+ *
+ * - `priority` is required here instead of defaulting. A defaulted priority
+ *   would let a client that omitted the field silently reset an existing task
+ *   to "medium".
+ * - `dueDate` accepts an explicit `null`. An edit must distinguish three
+ *   intents — leave the stored date alone (field omitted), replace it (a
+ *   valid date), clear it (null) — which create does not have. See
+ *   {@link updatableDueDateSchema}.
  *
  * `status` and `completedAt` are absent by design. `toggleTaskCompletion` is
  * the only writer of completion state, and it derives both values itself, so
@@ -174,12 +210,13 @@ export function validateDeleteTaskInput(
  * here and can never reach the update.
  */
 export const updateTaskSchema = createTaskSchema
-  .omit({ priority: true })
+  .omit({ priority: true, dueDate: true })
   .extend({
     taskId: taskIdSchema,
     priority: z.enum(PRIORITIES, {
       error: "Priority must be low, medium, or high",
     }),
+    dueDate: updatableDueDateSchema,
   });
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

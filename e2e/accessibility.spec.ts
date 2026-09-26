@@ -6,11 +6,13 @@
  * worth having as a hard gate: a future contrast, labelling or ARIA regression
  * fails the build here.
  *
- * The equally important finding is the limit of that result. The three defects
- * confirmed in Phase 1 (PROJECT_STATE 10.1) are all still present in the DOM
- * while axe reports nothing, because none of them is a rule axe implements.
- * `axeCannotSeeTheKnownDefects` demonstrates that rather than asserting it, so
- * nobody later mistakes "axe is green" for "this app is accessible".
+ * A Phase 3 finding worth remembering: the three behavioural defects fixed in
+ * Phase 4 (duplicate assertive live regions, uncontained dialog focus, focus
+ * stranded on `<body>` after a rejected create) were all present in the DOM
+ * while axe reported nothing, because none of them is a rule axe implements.
+ * The behavioural coverage in keyboard-focus.spec.ts is still the only
+ * coverage of that class of defect — axe being green was never proof of
+ * accessibility, and it still is not.
  */
 
 import {
@@ -94,36 +96,38 @@ test.describe("axe across all application states", () => {
     await expectNoAxeViolations(page, "a completed task");
   });
 
-  test("axeCannotSeeTheKnownDefects", async ({ page }) => {
+  test("the formerly defective states are semantically correct and axe-clean", async ({
+    page,
+  }) => {
     // This test is the most important one in the file.
     //
-    // It builds a state that provably contains three of the confirmed Phase 1
-    // defects — two assertive live regions for one validation failure, focus
-    // not contained in the open dialog, and no focusable element owning focus
-    // after the failure — and then asserts that axe still reports nothing.
-    //
-    // That is not a claim that the app is accessible. It is a demonstration
-    // that automated rule coverage stops where behavioural testing starts, and
-    // it is the evidence behind the split of responsibility between this file
-    // and `keyboard-focus.spec.ts`.
+    // In Phase 3 it built a state containing three confirmed defects and
+    // asserted axe still reported nothing — a demonstration that automated
+    // rule coverage stops where behavioural testing starts. Those defects are
+    // fixed in Phase 4, so this now asserts the corrected semantics directly:
+    // one assertive region per rejected submit and a modal delete dialog. The
+    // behavioural side of the same fixes (focus movement and containment) is
+    // proven in keyboard-focus.spec.ts, which remains the only coverage of
+    // that class — axe still implements no rule for either.
     await page.goto("/");
     await createTask(page, { title: "Blind spot" });
 
-    // Defect 1: two application-authored assertive regions for one bad field.
+    // A rejected submit authors exactly one assertive region: the form-level
+    // banner. Field errors are plain described-by text, not alerts.
     const form = createForm(page);
     await form.getByRole("button", { name: "Create task" }).click();
     await expect(page.getByText("Title is required")).toBeVisible();
-    const applicationAlerts = await form.getByRole("alert").count();
-    expect(applicationAlerts, "expected the duplicate-announcement defect").toBe(2);
+    await expect(form.getByRole("alert")).toHaveCount(1);
 
-    // Defect 2: the open dialog neither declares aria-modal nor traps Tab.
+    // The open dialog declares itself modal to assistive technology; real
+    // containment is behavioural and asserted in keyboard-focus.spec.ts.
     const dialog = await openDeleteConfirmation(page, "Blind spot");
-    expect(await dialog.getAttribute("aria-modal")).toBeNull();
+    await expect(dialog).toHaveAttribute("aria-modal", "true");
 
     const results = await scanPage(page);
     expect(
       results.violations,
-      `axe still reported nothing for a page containing three known defects:\n${describeViolations(results.violations)}`,
+      `axe found violations in the formerly defective state:\n${describeViolations(results.violations)}`,
     ).toEqual([]);
     expect(results.rulesChecked).toBeGreaterThan(20);
   });

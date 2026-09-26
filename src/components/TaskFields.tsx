@@ -210,11 +210,23 @@ function FieldFooter({
   );
 }
 
+/**
+ * A field validation message.
+ *
+ * This is deliberately not `role="alert"`. When several fields are invalid at
+ * once, or a field message renders alongside a form-level one, one submit
+ * would otherwise mount several assertive live regions simultaneously and a
+ * screen reader would interrupt itself announcing the least useful message
+ * first. Which field is invalid still reaches non-visually, two ways: the
+ * message is linked to its control with `aria-describedby` (both directions of
+ * that are asserted in the L3 suite), and focus is moved to the first invalid
+ * field by the form's own effect, so the message is the next thing the user
+ * hears after focus lands.
+ */
 function FieldError({ id, message }: { id: string; message: string }) {
   return (
     <p
       id={id}
-      role="alert"
       className="flex items-start gap-1.5 text-sm text-red-700"
     >
       <StatusIcon />
