@@ -1,4 +1,5 @@
 import { TaskCompletionButton } from "@/components/TaskCompletionButton";
+import { TaskDeleteControl } from "@/components/TaskDeleteControl";
 import type { TaskListItem } from "@/lib/queries/tasks";
 
 type TaskListProps = {
@@ -82,7 +83,9 @@ function TaskRow({ task }: { task: TaskListItem }) {
   const badge = badgeFor(task.priority);
 
   return (
-    <li className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 sm:p-4">
+    // `flex-wrap` lets the delete confirmation claim a full-width line of its
+    // own below the task content once it opens on a narrow screen.
+    <li className="flex flex-wrap items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 sm:p-4">
       <TaskCompletionButton taskId={task.id} isComplete={task.isComplete} />
       <span className="sr-only">
         {task.isComplete ? "Completed task" : "Open task"}
@@ -123,6 +126,8 @@ function TaskRow({ task }: { task: TaskListItem }) {
           ) : null}
         </div>
       </div>
+
+      <TaskDeleteControl taskId={task.id} title={task.title} />
     </li>
   );
 }

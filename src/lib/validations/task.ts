@@ -116,3 +116,41 @@ export function validateToggleTaskCompletionInput(
     fieldErrors: z.flattenError(result.error).fieldErrors,
   };
 }
+
+/**
+ * A delete request carries a reference and nothing else. The confirmation
+ * happens in the UI, so the server must never be told *which* row to remove by
+ * anything the client can influence beyond the id: no title, status, priority,
+ * or timestamps.
+ *
+ * Zod objects strip unknown keys, so a client that also sends `title`,
+ * `status` or `completedAt` has them discarded here before the action runs.
+ */
+export const deleteTaskSchema = z.object({
+  taskId: z
+    .string({ error: "Task id is required" })
+    .min(1, { error: "Task id is required" })
+    .max(64, { error: "Task id is too long" })
+    .regex(TASK_ID_PATTERN, { error: "Task id is malformed" }),
+});
+
+export type DeleteTaskInput = z.infer<typeof deleteTaskSchema>;
+
+export type DeleteTaskValidationResult =
+  | { success: true; data: DeleteTaskInput }
+  | { success: false; fieldErrors: Record<string, string[]> };
+
+export function validateDeleteTaskInput(
+  input: unknown,
+): DeleteTaskValidationResult {
+  const result = deleteTaskSchema.safeParse(input);
+
+  if (result.success) {
+    return { success: true, data: result.data };
+  }
+
+  return {
+    success: false,
+    fieldErrors: z.flattenError(result.error).fieldErrors,
+  };
+}
