@@ -4,21 +4,22 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: testing Phase 1 complete, `main`, working tree
-clean. Authoritative commit: see `git log -1`.
+Last verified against repository: testing Phase 2 complete, `main`. Authoritative
+commit: see `git log -1`.
 
 ---
 
 ## 1. Current Phase
 
-**Permanent Testing Infrastructure** — Phase 1 of 5 complete. The validation
-trust boundary is now covered by a permanent test suite. Phases 2–5 (server
-actions, query layer, browser E2E, CI) are not started.
+**Permanent Testing Infrastructure** — Phase 2 of 5 complete. The validation
+trust boundary *and* the server-action / query-layer data path are now covered
+by permanent tests. Phases 3–5 (browser E2E, accessibility, CI) are not
+started.
 
 ## 2. Current Milestone
 
-**Phase 1 — Vitest foundation + permanent validation tests: COMPLETE and
-committed.**
+**Phase 2 — L2 integration tests against a real, dedicated SQLite database:
+COMPLETE and committed.**
 
 - Approved test architecture: **Vitest** (unit/integration), **Playwright**
   (browser E2E), **@axe-core/playwright** (accessibility).
@@ -26,9 +27,13 @@ committed.**
 - Testing layers: **L1** pure validation unit tests · **L2** server-action and
   query-layer integration against real SQLite · **L3** Playwright E2E.
 
-**Phase 1 delivered:** Vitest 4.1.11 installed, `vitest.config.mts` added,
-`test` / `test:watch` scripts added, and **84 permanent tests** in
-`src/lib/validations/task.test.ts`. L2 and L3 have not been started.
+**Phase 1 delivered:** Vitest 4.1.11, `vitest.config.mts`, `test` / `test:watch`
+scripts, and **84 permanent tests** in `src/lib/validations/task.test.ts`.
+
+**Phase 2 delivered:** **72 new permanent L2 tests** — 50 in
+`src/actions/tasks.test.ts` and 22 in `src/lib/queries/tasks.test.ts` — running
+against a dedicated `.test/db/integration.db` created by the existing
+migrations. Total suite: **156 tests.** No production file was modified.
 
 ## 3. Project Status
 
@@ -38,45 +43,55 @@ committed.**
 - All four task fields implemented: title, description, priority, due date
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
 - Responsive UI (mobile + desktop)
-- **Permanent L1 validation test suite: 84 tests, all passing**
+- **Permanent test suite: 156 tests (84 L1 + 72 L2), all passing**, against a
+  dedicated disposable test database for L2
 - `test`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
 
-**Currently being developed:** nothing. Phase 1 is finished; Phase 2 has not
+**Currently being developed:** nothing. Phase 2 is finished; Phase 3 has not
 begun.
 
-**Working tree:** clean at the Phase 1 commit.
+**Working tree:** clean at the Phase 2 commit.
 
 **Not yet built:** filter, search, sort, dashboard statistics (see §8), and all
-of testing Phases 2–5 (see §11).
+of testing Phases 3–5 (see §11).
 
 ## 4. Last Completed Milestone
 
-**Phase 1 — Vitest foundation + permanent validation tests.**
+**Phase 2 — L2 integration tests for the server actions and query layer.**
 
-Delivered: `vitest@4.1.11` dev dependency, `vitest.config.mts`,
-`npm test` / `npm run test:watch` scripts, and 84 permanent tests in
-`src/lib/validations/task.test.ts` covering the create/update/delete/toggle
-validation contract, due-date calendar rules, the create-vs-update priority
-asymmetry, the task-id contract, and the unknown-field allowlist.
+Delivered: a dedicated, disposable test database (`.test/db/integration.db`)
+built by the existing migrations, a hard pre-import safety gate that refuses to
+run against any non-test database, and **72 permanent L2 tests** — 50 in
+`src/actions/tasks.test.ts`, 22 in `src/lib/queries/tasks.test.ts`.
 
-Gates: **84/84 tests pass**, `typecheck` exit 0, `lint` exit 0 with zero
-warnings. The suite was mutation-tested to prove it is not vacuous (see §15).
-No production file was modified.
+The L2 suite runs the **real** Prisma client against **real** SQLite. The only
+mock in the entire suite is `next/cache`'s `revalidatePath`, which is a Next.js
+framework function that cannot execute outside a Next request context.
+
+Gates: **156/156 tests pass** (84 L1 + 72 L2), `typecheck` exit 0, `lint` exit
+0. `dev.db` verified byte-identical (md5 `3a8be6b55df5e79d2510cf82d47ab3a3`,
+mtime unchanged) after every run. The L2 suite was mutation-tested (§15) and
+caught 5 of 6 injected regressions, with the sixth explained as intentional
+defense-in-depth. No production file was modified.
+
+**Phase 2 found a real, previously unknown bug** — see §10.1 item 0: a due date
+cannot be cleared once set.
 
 ## 5. Last Git Commit
 
 | Field | Value |
 |---|---|
-| Message | `test: add permanent validation tests` |
+| Message | `test: add action and query integration tests` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `d894b3b4316b724a4c208f9d1ebd08048b827b80` (`feat: add task editing`) |
+| Parent | `396d936765306a2378f251f017173b2dcc75b77c` (`test: add permanent validation tests`) |
 | Branch | `main` |
 | Remotes | none configured (repo is local-only) |
 
-**Full history (8 commits, oldest last):**
+**Full history (9 commits, oldest last):**
 
 ```
-<this commit>  test: add permanent validation tests
+<this commit>  test: add action and query integration tests
+396d936  test: add permanent validation tests
 d894b3b  feat: add task editing
 ae39904  feat: add task deletion
 ec1121d  feat: add task completion toggle
@@ -251,6 +266,38 @@ reasoning.
 
 ### CONFIRMED — verified present in the repository right now
 
+0. **A due date can never be cleared once set.** Found by the Phase 2 L2 suite.
+   The chain, verified by direct database inspection:
+
+   1. The edit form posts `dueDate: ""` when the user empties the field.
+   2. `optionalDueDateSchema` (`validations/task.ts`) preprocesses `""` →
+      `undefined`. This is *correct* — it is what lets an **omitted** field
+      mean "leave unchanged" on update.
+   3. `updateTask` then builds `data: { title, description, priority, dueDate }`
+      with `dueDate === undefined`, and **Prisma reads `undefined` as "do not
+      write this column"**, not as `null`.
+
+   Net effect: the update reports `success: true`, the title changes, and the
+   old due date silently remains. The user has no way to remove a date short of
+   editing the database directly. Confirmed controls: an explicit Prisma-level
+   `null` **does** clear the column, and an *omitted* `dueDate` correctly
+   leaves it alone — only the `"" → undefined → unchanged` path is broken.
+
+   **Not fixed in Phase 2**, because fixing it would change production
+   behaviour, which was explicitly out of scope. The L2 test named
+   *"CANNOT clear an existing due date by sending an empty string (known bug)"*
+   asserts today's behavior as a **regression marker**; when this is fixed,
+   invert that test to expect `null` rather than deleting it.
+
+   Note the layering is subtle and the "obvious" fix is wrong: making `""`
+   validate to `null` would fix clearing but **break** the legitimate
+   "omitted field means unchanged" behavior, because both cases then become
+   indistinguishable. A real fix needs the update path to distinguish "absent"
+   from "explicitly cleared" (e.g. via a separate flag or `.nullable()` plus
+   `hasOwnProperty` on the parsed payload), and needs a decision on whether
+   `description` should behave the same way — today `description: ""` *does*
+   persist, because `""` is not `undefined`.
+
 1. **Multiple simultaneous `role="alert"` announcements on one validation failure.**
    `TaskFields.tsx:217` renders a `role="alert"` per invalid field, *and*
    `TaskForm.tsx` renders a `role="alert"` banner ("Error: Validation failed"),
@@ -273,9 +320,10 @@ reasoning.
    behavior after create + revalidation is not yet verified** and must be
    measured, not assumed.
 
-4. **Testing coverage is one layer deep only.** L1 (validation) is permanently
-   covered by 84 tests. L2 (server actions + query layer against a real
-   database) and L3 (browser E2E + accessibility) do not exist. See §11.
+4. **Testing coverage is two layers deep.** L1 (validation, 84 tests) and L2
+   (server actions + query layer against a real database, 72 tests) are
+   permanently covered — 156 total. L3 (browser E2E + accessibility) does not
+   exist. See §11.
 
 5. **`README.md` is unmodified `create-next-app` boilerplate.** It gives a wrong
    path (`app/page.tsx`; the file is `src/app/page.tsx`) and Vercel deployment
@@ -302,10 +350,12 @@ reasoning.
    downloaded but never applied. *Action: remove the dead rules. Do **not**
    implement dark mode — it is out of V1 scope.*
 
-9. **`description` nullability is unreachable.** `schema.prisma:13` declares
-   `String?`, but an empty textarea posts `""`, which Zod accepts and the action
-   writes verbatim — so the column always holds `""` and never `NULL`. "No
-   description" and "empty description" are indistinguishable. Harmless in V1.
+9. **`description` nullability is now confirmed reachable — see item 0, which
+   supersedes the earlier "always `""`" note in this file.** Verified by L2:
+   `createTask({ title })` with the field omitted stores `NULL`, while
+   `createTask({ title, description: "" })` stores `""`. Both states are
+   therefore real and distinguishable in the database, and the L2 suite pins
+   both. Harmless in V1.
 
 10. **`DateOnly` is a no-op alias** (`constants.ts:22`): `type DateOnly = string`
     provides no type safety, only documentation.
@@ -324,8 +374,8 @@ reasoning.
 
 14. **`tsx` is installed but unused** (`package.json:39`). Now definitively
     unnecessary — Vitest is the approved runner and compiles TS natively, so
-    `tsx` is dead weight. **Not removed in Phase 1** (out of scope there);
-    cleanup is deferred. See §12.
+    `tsx` is dead weight. **Not removed in Phase 1 or Phase 2** (removal was
+    out of scope in both); cleanup is deferred. See §12.
 
 ## 11. Testing Status
 
@@ -333,26 +383,70 @@ reasoning.
 
 | Concern | Choice |
 |---|---|
-| Unit / integration runner | **Vitest** |
-| Browser E2E runner | **Playwright** (Phase 3 — not installed) |
-| Accessibility | **@axe-core/playwright** (Phase 3 — not installed) |
+| Unit / integration runner | **Vitest** (installed, v4.1.11) |
+| Browser E2E runner | **Playwright** (Phase 4 — not installed) |
+| Accessibility | **@axe-core/playwright** (Phase 4 — not installed) |
 | Rejected | Jest, React Testing Library, jsdom, snapshot testing |
 
 **L1** pure validation unit tests · **L2** server-action + query-layer
 integration against real SQLite · **L3** Playwright E2E.
 
-### Permanent tests in the repository: **84, all L1**
+### Permanent tests in the repository: **156** — 84 L1 + 72 L2
 
-- `src/lib/validations/task.test.ts` — co-located with the module under test.
+| Suite | Tests | Database | Mocks |
+|---|---|---|---|
+| `src/lib/validations/task.test.ts` | 84 | none (pure) | none |
+| `src/actions/tasks.test.ts` | 50 | real SQLite | `next/cache` only |
+| `src/lib/queries/tasks.test.ts` | 22 | real SQLite | none |
+
 - Command: `npm test` (single run) · `npm run test:watch` (watch mode).
 - Config: `vitest.config.mts` — `environment: "node"`,
-  `include: ["src/**/*.test.ts"]`, and one `resolve.alias` mapping `@` → `./src`.
-- Suites: create validation · due date · edit validation · task id · completion
-  toggle · allowlist / unknown fields · error attribution.
+  `include: ["src/**/*.test.ts"]`, aliases `@` → `./src` and `@tests` →
+  `./tests`, `setupFiles: ["tests/setup/database-env.ts"]`, and
+  `fileParallelism: false`.
 
-**The suite touches no database.** It imports only `validations/task.ts` and
-`constants.ts`, both pure, so it cannot reach `dev.db`, Prisma, or a Next
-server. No `DATABASE_URL` manipulation, no mocks, no setup files.
+### The `dev.db` safety gate (Phase 2) — DO NOT REMOVE OR WEAKEN
+
+`src/lib/db.ts:6` falls back to `process.env.DATABASE_URL ?? "file:./dev.db"`,
+and `npm run db:reset` exists. A test that reaches the DB layer without
+`DATABASE_URL` set would write the developer's real database.
+
+`tests/setup/database-env.ts` is registered in `setupFiles`, so it runs **before
+any application module is imported** (a test body would be too late — imports
+resolve first). It:
+
+1. computes the absolute path of `.test/db/integration.db`;
+2. **hard-fails** unless the path is inside `.test/` — rejecting `dev.db`,
+   `production.db`, and anything else that looks like a real database;
+3. **hard-fails** if the ambient environment already points somewhere unsafe,
+   rather than silently overriding it;
+4. exports `TEST_DATABASE_URL` and assigns it to `process.env.DATABASE_URL`.
+
+`tests/helpers/test-db.ts` applies the schema with the **existing migrations**
+(`prisma migrate deploy`, run as a subprocess with the test URL passed
+explicitly, because `prisma.config.ts:10` reads `env("DATABASE_URL")`). It
+never runs `db:reset` and never creates schema by hand.
+
+Verified behavior of the gate:
+
+```
+DATABASE_URL=file:./dev.db       -> REFUSING TO RUN L2 TESTS  (both checks fire)
+DATABASE_URL=file:./production.db-> REFUSING TO RUN L2 TESTS
+```
+
+`.test/` is git-ignored and disposable; deleting it and re-running recreates and
+re-migrates the database from scratch. `dev.db` was verified byte-identical
+(md5 `3a8be6b55df5e79d2510cf82d47ab3a3`, **mtime unchanged**, so it was never
+even opened for write) after every Phase 2 run.
+
+### Test isolation and determinism
+
+- L2 files share one SQLite file, so `fileParallelism: false` runs one file at
+  a time. `test.concurrent` is not used and must not be introduced.
+- Each test starts with `prisma.task.deleteMany()`, so leftovers from a
+  previous test can never influence a result. Rows are created with
+  `prisma.task.create` using explicit columns, bypassing the server actions, so
+  the query layer is proven against states the actions would never create.
 
 ### What L1 proves, and what it does not
 
@@ -362,32 +456,35 @@ that keep `dueDate` a `YYYY-MM-DD` string, the task-id contract, and that
 unrecognised or prototype-polluting keys never survive into a payload.
 
 **Does not prove:** that the database cannot be manipulated through protected
-fields. That is L2, against a real SQLite database. The task-id tests pin the
-*current application contract* and must not be read as proof that SQL injection
-is impossible.
+fields. That is L2, and L2 now proves it.
+
+### What L2 proves, and what it does not
+
+**Proves:** every action's real persisted effect, including that `id`,
+`status`, `completedAt`, `createdAt` and `updatedAt` cannot be written through
+a client payload; the `Task not found` contract for update/toggle/delete;
+create-vs-update validation priority; title trimming; that `createdAt` survives
+an update while `updatedAt` advances; that completion is an *absolute* target
+state and is idempotent; that a second delete reports not found; that
+`getTaskList` returns exactly the six UI fields, orders by `createdAt desc,
+id desc` with the same tie-break, and that its SQL count agrees with its
+per-row `isComplete` flags across inconsistent rows.
+
+**Does not prove:** browser behavior. `revalidatePath` is mocked precisely
+*because* it cannot run outside a Next request — see §15. Whether the UI
+actually refreshes after a create/edit is still **unverified** and belongs to
+Phase 4.
 
 ### Known gaps
 
-- **L2 does not exist.** No server-action or query-layer test, so the §9.5
-  "never spread a Prisma write" guarantee, the "Task not found" contract, and
-  the duplicated completion rule (§9.3) are still unverified by permanent tests.
-- **L3 does not exist.** The three confirmed accessibility defects (§10.1–3)
-  still have no coverage, so they cannot be verified as fixed.
+- **L3 does not exist.** The confirmed accessibility defects (§10.1–3) still
+  have no coverage, so they cannot be verified as fixed. The static-vs-runtime
+  focus question in §10.3 is still open.
+- **The `revalidatePath` → visible-refresh path is unverified end to end.**
 - No CI, so even `test` / `typecheck` / `lint` are unenforced.
+- **The due-date clearing bug (§10.1 item 0) is unfixed** and is currently
+  pinned by a test that asserts the broken behavior.
 
-### Safety gate for Phase 2 — READ BEFORE WRITING ANY L2 TEST
-
-`src/lib/db.ts:6` falls back to `process.env.DATABASE_URL ?? "file:./dev.db"`.
-Any test that imports the DB layer without `DATABASE_URL` set **will write the
-developer's real database**, and `npm run db:reset` exists.
-
-Phase 2 must therefore:
-
-1. Set `DATABASE_URL` to a dedicated test database **before any module import**
-   (a Vitest `setupFiles` module or the `test.env` config option — not inside a
-   test body, which runs after imports).
-2. **Hard-fail** if the resolved URL contains `dev.db`.
-3. Never run `db:reset`, `db:migrate`, or any migration against `dev.db`.
 
 ## 12. Deferred Work
 
@@ -406,7 +503,7 @@ Deliberately postponed. **Do not add these without explicit approval.**
 | FTS / search index | Decide when search ships. |
 | Server log redaction | Before any hosted deployment. |
 | Multi-step `dueDate` (times, reminders) | Not in V1. |
-| `tsx` | **Unused**; remains installed only because removal was not in Phase 1 scope. Marked for cleanup in a future "tooling cleanup" PR, after the testing phases are complete. |
+| `tsx` | **Unused**; remains installed only because removal was out of scope in testing Phases 1 and 2. Marked for cleanup in a future "tooling cleanup" PR, after the testing phases are complete. |
 
 ## 13. Current Constraints
 
@@ -431,49 +528,44 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-Implement TESTING PHASE 2 — L2 integration tests for the server actions and
-the query layer, against a real, dedicated SQLite TEST database.
+Implement TESTING PHASE 3 — browser E2E with Playwright, plus the first
+accessibility coverage via @axe-core/playwright.
 
-Phase 1 is complete and committed. Phase 2 has NOT been started.
+Phase 2 is complete and committed. Phase 3 has NOT been started.
 
 Approved architecture (already decided — do not re-open):
   Runner ............ Vitest (installed, v4.1.11)
-  E2E runner ........ Playwright  (Phase 3, not installed)
-  Accessibility ..... @axe-core/playwright (Phase 3, not installed)
+  E2E runner ........ Playwright  (NOT installed — install in this phase)
+  Accessibility ..... @axe-core/playwright (NOT installed)
   Rejected .......... Jest, React Testing Library, jsdom, snapshot testing
-  Test placement .... co-located *.test.ts next to the module under test
-  Mocks ............. mock ONLY next/cache. Do not mock Prisma.
 
-MUST DO FIRST — the dev.db safety gate (§11):
-  src/lib/db.ts:6 falls back to process.env.DATABASE_URL ?? "file:./dev.db".
-  1. Set DATABASE_URL to a dedicated test database BEFORE any module import
-     (a Vitest setupFiles module or test.env — NOT inside a test body, which
-     runs after imports have already resolved).
-  2. Hard-fail if the resolved URL contains "dev.db".
-  3. Never run db:reset, db:migrate, or any migration against dev.db.
+Highest-value targets, in priority order:
+  1. The revalidatePath path that L2 had to mock. A create/edit/delete must
+     visibly refresh the list without a manual browser reload. This is the one
+     user-visible behavior the current 156 tests cannot reach (§11).
+  2. Keyboard operability of the edit and delete islands, and the
+     create-then-focus question left open in §10.3 — measure it, do not assume.
+  3. @axe-core/playwright run on the list page and on each of the four task
+     islands, to give §10.1-3 a reproducible pass/fail signal.
 
-Phase 2 scope:
-  - Integration tests for createTask, updateTask, toggleTaskCompletion and
-    deleteTask in src/actions/tasks.ts.
-  - Integration tests for getTaskList in src/lib/queries/tasks.ts.
-  - The full security regression matrix: protected fields (id, status,
-    completedAt, createdAt, updatedAt) cannot be written through a client
-    payload; the "Task not found" contract; unknown-task handling.
-  - Coverage for the completion rule implemented twice in
-    queries/tasks.ts:27-37 — the count and the rows must agree.
+Constraints:
+  - Do NOT fix the accessibility defects you find. Report them; they are
+    already logged and fixing them is a separate, approved piece of work.
+  - Do NOT fix the due-date clearing bug (§10.1 item 0) as a side effect. It
+    needs a product decision about absent-vs-cleared, not a quick patch.
+  - Do NOT weaken the L2 due-date regression test. If the bug is ever fixed,
+    invert that one assertion to expect null.
+  - Playwright must start its own web server and must not use dev.db for its
+    seeded data — decide and document how the E2E run gets a known starting
+    state, and never point it at the developer's database.
+  - Keep the dev.db safety gate in tests/setup/database-env.ts intact.
 
-STRICTLY OUT OF SCOPE FOR PHASE 2:
-  - Playwright / axe / any browser test (that is Phase 3).
-  - CI (Phase 5).
-  - Fixing the confirmed accessibility defects (§10.1-3) — report, do not fix.
-  - Changing production behaviour to make tests easier.
-  - Adding a service layer or any new abstraction.
-
-Verify before committing: npm test, npm run typecheck, npm run lint.
-Then update this file and make ONE commit.
+Verify before committing: npm test (all 156 must still pass), npm run
+typecheck, npm run lint. Then update this file and make ONE commit.
 ```
 
 **Update this section whenever the project moves to a new milestone.**
+
 
 ## 15. Handoff Notes
 
@@ -500,7 +592,7 @@ Things that would otherwise be lost when this session ends.
   `@prisma/config`, `deepmerge-ts`, `mysql2`) and unrelated to Vitest. They were
   deliberately not "fixed" — `npm audit fix --force` would change production
   dependencies and is out of scope.
-- `tsx` is now confirmed dead weight (§10.14, §12). Not removed in Phase 1.
+- `tsx` is now confirmed dead weight (§10.14, §12). Not removed in Phase 1 or 2.
 
 ### The real validation contract, as verified by probing
 
@@ -600,6 +692,55 @@ Recorded so they are not repeated:
   200 characters", not "calls Zod max(200)".
 - The tests drive the four `validate*Input` helpers, because those are what the
   server actions actually call — that is the real trust boundary.
+
+### Phase 2 handoff notes (new)
+
+- **The `revalidatePath` finding is the most important thing to carry
+  forward.** Run for real, outside a Next request, `revalidatePath("/")` throws
+  `Invariant: static generation store missing in revalidatePath /`. Because
+  every action calls it *after* the write and *inside* its `try`, the action
+  swallows that error and returns `{ success: false, error: "Failed to create
+  task" }` **while the row is already committed**. So an unmocked L2 run would
+  report a spurious failure and the database would still be correct.
+  `vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))` is therefore
+  mandatory in `src/actions/tasks.test.ts`, and it is the *only* mock in the
+  suite. It is not optional and it is not a workaround for a product bug — it
+  is the standard way to stand in for a framework function that has no meaning
+  outside its host.
+- **Two L2 tests failed on first run, and both diagnoses differed** — worth
+  remembering as a process lesson:
+  - the `remainingCount` expectation was **my arithmetic error** (I expected 2
+    incomplete rows and there was 1); the meaningful assertion, that the SQL
+    count agrees with the per-row `isComplete` flags, passed. Test fixed.
+  - the due-date clearing failure was a **real production bug** (§10.1 item 0).
+    The correct response was *not* to relax the assertion, and not to patch
+    production: the test now asserts today's broken behavior under a name that
+    says it is a known bug, with a comment explaining the mechanism and how to
+    invert it when fixed. A regression marker is more useful than a deleted
+    test.
+- **Mutation testing was run on the L2 suite, and the one miss is informative.**
+  Six regressions were injected into production code, then reverted
+  byte-for-byte. Caught: `createTask` writing the wrong `status` (5 tests),
+  `updateTask` including `status` (1), `toggleTaskCompletion` flipping instead
+  of setting absolute state (6), the `getTaskList` count rule inverted (2), and
+  the ordering flipped to oldest-first (2).
+  **Not caught:** replacing the explicit Prisma field list in `createTask` with
+  a spread of the validated payload. That is *not* a test gap — it is the
+  §9.5 allowlist working twice. Zod already strips `status` / `id` / timestamps
+  before the action sees them, so the explicit field list is redundant
+  *while that stripping holds*. Removing both layers together (`.passthrough()`
+  + spread) **did** fail 7 tests, so the boundary is genuinely defended; the
+  explicit field list is defense-in-depth that becomes load-bearing only if
+  validation ever stops stripping. That coupling is now documented rather than
+  assumed.
+- **`tsconfig.json` needed a `@tests/*` path entry.** Vitest resolves the alias
+  via `resolve.alias` but `tsc` does not, so typecheck failed on
+  `Cannot find module '@tests/helpers/test-db'`. A Vitest alias TypeScript
+  cannot see is a latent trap; the two configs are now kept in sync. This is a
+  type-resolution change only and does not affect the Next.js runtime.
+- L2 was verified to be **order-independent and repeatable**: ordering
+  assertions use explicit `createdAt` values and a deliberate same-instant tie
+  for the `id` tie-break, never insertion order or cuid monotonicity.
 
 ### Environment note
 
