@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseTaskFilter,
+  parseTaskSearch,
   parseTaskSort,
   validateCreateTaskInput,
   validateDeleteTaskInput,
@@ -788,5 +789,100 @@ describe("parseTaskSort", () => {
       success: false,
       error: "Sort must be created, dueDate, or priority",
     });
+  });
+});
+
+/**
+ * The search term is the third untrusted list-state parameter. The L1
+ * contract is normalization only — the mapping into SQL belongs to the L2
+ * query layer — but the shape decided here (a list of literal words) is what
+ * makes that mapping safe: no URL value ever reaches SQL as text.
+ */
+describe("parseTaskSearch", () => {
+  it("treats a missing parameter as no search", () => {
+    expect(parseTaskSearch(undefined)).toEqual({ success: true, data: [] });
+  });
+
+  it("treats an empty parameter as no search", () => {
+    expect(parseTaskSearch("")).toEqual({ success: true, data: [] });
+  });
+
+  it("treats a whitespace-only parameter as no search", () => {
+    for (const blank of ["   ", "\t\n", " "]) {
+      expect(parseTaskSearch(blank)).toEqual({ success: true, data: [] });
+    }
+  });
+
+  it("accepts a normal single-word search", () => {
+    expect(parseTaskSearch("milk")).toEqual({ success: true, data: ["milk"] });
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(parseTaskSearch("  milk  ")).toEqual({
+      success: true,
+      data: ["milk"],
+    });
+  });
+
+  it("splits a multi-word search into AND-ed words", () => {
+    // "milk delivery" means: rows containing BOTH words, in either field,
+    // in any order — the documented V1 contract, not a phrase search.
+    expect(parseTaskSearch("milk   delivery")).toEqual({
+      success: true,
+      data: ["milk", "delivery"],
+    });
+  });
+
+  it("keeps interior whitespace out of the words", () => {
+    // Tabs and newlines are separators, never part of a word.
+    expect(parseTaskSearch("milk\tdelivery\nroute")).toEqual({
+      success: true,
+      data: ["milk", "delivery", "route"],
+    });
+  });
+
+  it("accepts URL-decoded and special characters as literal words", () => {
+    // The framework has already URL-decoded the value by the time it arrives;
+    // encoding is transport, not content. Every non-control character is a
+    // literal — including ones that are special in SQL or LIKE.
+    expect(parseTaskSearch("50% guarantee")).toEqual({
+      success: true,
+      data: ["50%", "guarantee"],
+    });
+    expect(parseTaskSearch("file_v2")).toEqual({
+      success: true,
+      data: ["file_v2"],
+    });
+    expect(parseTaskSearch("O'Brien \"quoted\" <script>")).toEqual({
+      success: true,
+      data: ["O'Brien", "\"quoted\"", "<script>"],
+    });
+  });
+
+  it("rejects repeated (array) parameters instead of guessing", () => {
+    // A repeated ?search=a&search=b arrives as an array; that is not a term
+    // this box can express, so it falls back to the default view — the same
+    // discipline as filter and sort.
+    const result = parseTaskSearch(["a", "b"]);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-string values", () => {
+    for (const hostile of [null, 7, true, {}, { toString: () => "milk" }]) {
+      expect(parseTaskSearch(hostile).success).toBe(false);
+    }
+  });
+
+  it("rejects over-long input instead of querying with it", () => {
+    const long = "x".repeat(201);
+    const result = parseTaskSearch(long);
+
+    expect(result.success).toBe(false);
+    expect(parseTaskSearch("x".repeat(200)).success).toBe(true);
+  });
+
+  it("accepts values at the length boundary", () => {
+    expect(parseTaskSearch("x".repeat(200)).success).toBe(true);
   });
 });

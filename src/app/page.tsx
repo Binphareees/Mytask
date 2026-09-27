@@ -1,6 +1,7 @@
 import { TaskFilterControl, TaskSortControl } from "@/components/TaskFilterControl";
 import { TaskForm } from "@/components/TaskForm";
 import { TaskList } from "@/components/TaskList";
+import { TaskSearchControl } from "@/components/TaskSearchControl";
 import {
   DEFAULT_TASK_FILTER,
   DEFAULT_TASK_SORT,
@@ -8,7 +9,11 @@ import {
   type TaskSort,
 } from "@/lib/constants";
 import { getTaskList } from "@/lib/queries/tasks";
-import { parseTaskFilter, parseTaskSort } from "@/lib/validations/task";
+import {
+  parseTaskFilter,
+  parseTaskSearch,
+  parseTaskSort,
+} from "@/lib/validations/task";
 
 export const dynamic = "force-dynamic";
 
@@ -31,17 +36,20 @@ export default async function Home({
   searchParams: Promise<{
     filter?: string | string[];
     sort?: string | string[];
+    search?: string | string[];
   }>;
 }) {
   const params = await searchParams;
   const filterResult = parseTaskFilter(params.filter);
   const sortResult = parseTaskSort(params.sort);
+  const searchResult = parseTaskSearch(params.search);
   const filter: TaskFilter = filterResult.success
     ? filterResult.data
     : DEFAULT_TASK_FILTER;
   const sort: TaskSort = sortResult.success ? sortResult.data : DEFAULT_TASK_SORT;
+  const search: string[] = searchResult.success ? searchResult.data : [];
 
-  const { tasks, remainingCount } = await getTaskList({ filter, sort });
+  const { tasks, remainingCount } = await getTaskList({ filter, sort, search });
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 sm:py-12">
@@ -54,12 +62,29 @@ export default async function Home({
 
       <TaskForm />
 
-      <div className="flex flex-col gap-2">
-        <TaskFilterControl activeFilter={filter} activeSort={sort} />
-        <TaskSortControl activeFilter={filter} activeSort={sort} />
+      <div className="flex flex-col gap-3">
+        <TaskSearchControl
+          activeFilter={filter}
+          activeSort={sort}
+          activeSearch={search}
+        />
+
+        <div className="flex flex-col gap-2">
+          <TaskFilterControl
+            activeFilter={filter}
+            activeSort={sort}
+            activeSearch={search}
+          />
+          <TaskSortControl
+            activeFilter={filter}
+            activeSort={sort}
+            activeSearch={search}
+          />
+        </div>
       </div>
 
       <TaskList
+        searchWords={search}
         tasks={tasks}
         remainingCount={remainingCount}
         activeFilter={filter}

@@ -4,23 +4,57 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: Phase 7 (task sorting) complete, `main`. Authoritative
+Last verified against repository: Phase 8 (task search) complete, `main`. Authoritative
 commit: see `git log -1`.
 
 ---
 
 ## 1. Current Phase
 
-**Task Sorting** — Phase 7 of the task sequence complete. The task list can
-be sorted by created date, due date, or priority, composed with the Phase 6
-filter through URL search parameters, with both operations performed by the
-database query. Phases 1–6 (test infrastructure, defect fixes, CI
-enforcement, filtering) are complete; remaining V1 features are search and
-dashboard statistics (§8).
+**Task Search** — Phase 8 of the task sequence complete. The task list can be
+searched by title and description, composed with the Phase 6 filter and the
+Phase 7 sort through URL search parameters, with all three read-side
+operations performed by the database query. Phases 1–7 are complete; the only
+remaining V1 feature is dashboard statistics (§8).
 
 ## 2. Current Milestone
 
-**Phase 7 — Task sorting: COMPLETE and committed.**
+**Phase 8 — Task search: COMPLETE and committed.**
+
+- **Contract:** a search is a list of literal words (whitespace-split, AND
+  across words); a row matches when EVERY word occurs in its title OR its
+  description. Substring matching, ASCII-case-insensitive (probed SQLite
+  LIKE behavior — non-ASCII does not fold, documented as a known limit). No
+  search language: no quotes, operators, negation, stemming, ranking.
+- **FTS5 decision: NOT used — database-side LIKE chosen.** FTS5 is compiled
+  into this SQLite (`ENABLE_FTS5`, probed), but it is token-based and cannot
+  honor the required substring contract (`milk` matching "almilkbot") without
+  fighting the tool. It would add a virtual table, sync triggers, a
+  migration, and all-raw queries for zero V1 benefit at this dataset size.
+  Full reasoning in §9.17.
+- **Security finding, probed then fixed by design:** typed `contains` on
+  this stack treats `%` and `_` as LIKE wildcards (`contains("_")` matched
+  EVERY row). Search therefore routes terms containing `%`/`_` through the
+  parameterized raw path with backslash-ESCAPE, so wildcards match literally;
+  all other combinations ride the typed path. Every search value is a bound
+  parameter — user input never becomes SQL text (pinned by a spy test).
+- **URL contract:** `search` is the third list-state parameter
+  (`/?search=milk`, `/?filter=todo&sort=priority&search=milk`). Defaults are
+  omitted from canonical URLs; all three controls preserve the other
+  dimensions via the shared `listUrl` helper (the §9.12 third-consumer
+  threshold). Normalization: missing/empty/whitespace-only → no search;
+  surrounding whitespace trimmed; repeated (array) or non-string values and
+  over-long input (>200 chars) → no search.
+- **The search UI is a plain server-rendered GET form** (no client island):
+  hidden inputs carry the current filter/sort, submission is a navigation the
+  browser records in history, and clearing is a link to the current view
+  without the parameter.
+
+**Suite totals after Phase 8: 410 permanent tests (115 L1 + 138 L2 + 157 L3).**
+The Phase 7 baseline was 361 (103 L1 + 103 L2 + 155 L3), re-verified before
+any change.
+
+**The previous milestone — Phase 7 — added task sorting:**
 
 - **Sort contract:** `created` (createdAt DESC, id DESC — the pre-Phase-7
   default, unchanged), `dueDate` (earliest first, undated tasks LAST,
@@ -131,8 +165,11 @@ before any change was made.
 - **Sorting by created / dueDate / priority** via a second URL parameter,
   composed with the filter, applied by the database query (CASE-backed for
   priority), with deterministic tie-breaking
+- **Searching title + description** via a third URL parameter, composed with
+  filter and sort, applied by the database query (escaped-LIKE raw path for
+  wildcard-literal terms), with per-word AND semantics
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
-- **Permanent test suite: 361 tests (103 L1 + 103 L2 + 155 L3), all passing**,
+- **Permanent test suite: 410 tests (115 L1 + 138 L2 + 157 L3), all passing**,
   each layer against its own dedicated disposable database — and enforced by
   CI (`.github/workflows/ci.yml`)
 - `test`, `e2e`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
@@ -141,16 +178,47 @@ before any change was made.
   lint, L1+L2, the production build, and L3 with axe — validated locally
   against a clean checkout; not yet executed remotely (no remote)
 
-**Currently being developed:** nothing. Phase 7 is finished.
+**Currently being developed:** nothing. Phase 8 is finished.
 
-**Working tree:** clean at the Phase 7 commit.
+**Working tree:** clean at the Phase 8 commit.
 
-**Not yet built:** search, dashboard statistics (see §8).
+**Not yet built:** dashboard statistics (see §8).
 Not yet decided: a git remote / first push (§10.6, §14).
 
 ## 4. Last Completed Milestone
 
-### Phase 7 — Task sorting (current)
+### Phase 8 — Task search (current)
+
+Files touched: `constants.ts` (`SEARCH_MAX_LENGTH`), `validations/task.ts`
+(`parseTaskSearch`), `db.ts` (`sqlJoin` re-export), `queries/tasks.ts`
+(`searchConditionFor`, `rawSearchConditionFor` + `likeLiteral`,
+`composeWhere`, generalized raw path), `page.tsx` (third parameter), new
+`list-url.ts` (shared canonical URL builder), `TaskFilterControl.tsx`
+(search-carrying links), new `TaskSearchControl.tsx` (GET form),
+`TaskList.tsx` (search empty state), tests (`task.test.ts` L1,
+`tasks.test.ts` L2, new `task-search.spec.ts` L3). No CRUD action modified;
+no migration created.
+
+| Aspect | Decision |
+|---|---|
+| Fields | `title` OR `description`; never id/priority/status/dueDate/timestamps |
+| Words | Whitespace-split; EVERY word must match (AND); order-independent |
+| Case | ASCII-case-insensitive (probed LIKE); non-ASCII does not fold (documented limit) |
+| Matching | Substring (`%word%`); `milk` matches "almilkbot" |
+| Wildcards | `%` and `_` are LITERAL characters — escaped-LIKE raw path (typed `contains` cannot do this) |
+| Normalization | missing/empty/whitespace-only → no search; trimmed; repeated/array, non-string, >200 chars → no search |
+| URL | `?search=` joins filter+sort; canonical defaults omitted; GET form submits even an empty value (server normalizes it) |
+| Raw SQL | Same raw path as the priority sort, now serving WHERE fragments too; static structure, bound values only |
+| Index | None added: a `%term%` scan cannot use a B-tree index; FTS5 declined (§9.17) |
+
+Mutation audit (7 drills, each verified applied, caught, and restored
+byte-identically): title condition removed → 9 L2 failures; description
+condition removed → 8; case-sensitive GLOB → 12; database-side search
+removed → 11 (spy test among them); controls dropping search from URLs → 2
+L3; search overriding filter (composition broken) → 2; whitespace searched
+literally → 2 L1.
+
+### Phase 7 — Task sorting (previous milestone)
 
 Files touched: `constants.ts` (`TASK_SORTS`), `validations/task.ts`
 (`parseTaskSort`), `db.ts` (typed `Prisma.sql` re-export), `queries/tasks.ts`
@@ -309,16 +377,17 @@ semantics, and adds genuine containment, all local to the component:
 
 | Field | Value |
 |---|---|
-| Message | `feat: add task sorting` |
+| Message | `feat: add task search` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `1edd9ca` (`feat: add task filtering`) |
+| Parent | `3bc0576` (`feat: add task sorting`) |
 | Branch | `main` |
 | Remotes | none configured (repo is local-only; CI has therefore never run remotely) |
 
-**Full history (14 commits, oldest last):**
+**Full history (15 commits, oldest last):**
 
 ```
-<this commit>  feat: add task sorting
+<this commit>  feat: add task search
+3bc0576  feat: add task sorting
 1edd9ca  feat: add task filtering
 035eb12  ci: add automated quality gates
 2c4789b  fix: resolve verified accessibility and due date issues
@@ -421,6 +490,7 @@ security/browser verification pass at the time of implementation.
 | Complete / incomplete | `toggleTaskCompletion` (`tasks.ts:61`), `TaskCompletionButton.tsx` |
 | **Filter by status** | URL `?filter=todo\|done`, `parseTaskFilter` (`validations/task.ts`), `whereForFilter` + conditional `where` in `getTaskList`, `TaskFilterControl.tsx` |
 | **Sort** | URL `?sort=dueDate\|priority`, `parseTaskSort`, `orderByForSort` + the raw CASE path in `findTaskRows`, `TaskSortControl.tsx` |
+| **Search** | URL `?search=`, `parseTaskSearch`, `searchConditionFor`/`rawSearchConditionFor` + `composeWhere` in `getTaskList`, `TaskSearchControl.tsx` |
 | Title (required) | `schema.prisma:12`; trimmed, 1–200 |
 | Description (optional) | `schema.prisma:13`; 0–2000 |
 | Priority | `constants.ts:1`; `low` / `medium` / `high` |
@@ -438,6 +508,7 @@ None of these are started. All are read-side additions to the query layer.
 | ~~**Filter by status**~~ | **Shipped in Phase 6** via URL search params; `getTaskList()` now takes an optional validated filter and defaults to `all`. |
 | **Search** | No index can serve `LIKE '%term%'` in SQLite; will be a full scan. Needs FTS5 or an accepted cost decision. |
 | ~~**Sort**~~ | **Shipped in Phase 7** (`created` / `dueDate` / `priority` via `?sort=`). The `priority` index was NOT added: no demonstrated need at V1 scale (see §12). |
+| ~~**Search**~~ | **Shipped in Phase 8** (`title` + `description`, `?search=`). LIKE-based, no FTS5, no index — see §9.17 for the decision and §12 for the revisit trigger. |
 | **Dashboard statistics** | Only `remainingCount` exists. **Warning: this creates a *third* encoding of the completion rule** — see §9. |
 
 ## 9. Important Architectural Decisions
@@ -534,7 +605,25 @@ reasoning.
     10.9.8) and must not be copied into CI — and Node is pinned to **22** to
     match the local toolchain rather than a blind "latest".
 
-16. **The URL filter is normalized by value, not by the status constants.**
+17. **Search is database-side LIKE, not FTS5 — and the wildcards are the reason a raw path exists for it.**
+    *Evidence, all probed against this stack (SQLite via better-sqlite3,
+    Prisma 7.10):* FTS5 IS compiled in (`ENABLE_FTS5`), so this was a real
+    choice, not a forced one. LIKE here is ASCII-case-insensitive and does
+    not fold non-ASCII (`%Ä%` misses "ä") — that is the documented contract.
+    FTS5 was declined because it is token-based: it cannot express the V1
+    requirement that `milk` match "almilkbot" (substring) without
+    contortions, and it would add a virtual table, sync triggers, a
+    migration, and all-raw queries to a local single-user dataset of
+    hundreds of rows where a full scan is already instant. Revisit FTS5 when
+    a real requirement appears: thousands of tasks, relevance ranking,
+    stemming, or prefix-first UX. On the security side, typed `contains`
+    treats `%` and `_` as wildcards (probed: `contains("_")` matched every
+    row) and offers no escape option on this version — so terms containing
+    those characters are routed through the parameterized raw path with
+    backslash-ESCAPE, matching them literally. Search values are always
+    bound parameters; the raw query's structure is static.
+
+18. **The URL filter is normalized by value, not by the status constants.**
     `parseTaskFilter` accepts only the three logical states of `TASK_FILTERS`
     (`all`/`todo`/`done`) — the database status constants are *not* filter
     input, and the mapping onto them happens once inside the query layer
@@ -692,15 +781,16 @@ never proof of accessibility (see §11).
 **L1** pure validation unit tests · **L2** server-action + query-layer
 integration against real SQLite · **L3** Playwright E2E.
 
-### Permanent tests in the repository: **361** — 103 L1 + 103 L2 + 155 L3
+### Permanent tests in the repository: **410** — 115 L1 + 138 L2 + 157 L3
 
 | Suite | Tests | Database | Mocks |
 |---|---|---|---|
-| `src/lib/validations/task.test.ts` | 103 | none (pure) | none |
+| `src/lib/validations/task.test.ts` | 115 | none (pure) | none |
 | `src/actions/tasks.test.ts` | 54 | real SQLite | `next/cache` only |
-| `src/lib/queries/tasks.test.ts` | 49 | real SQLite | none |
+| `src/lib/queries/tasks.test.ts` | 64 | real SQLite | none |
 | `e2e/task-crud.spec.ts` | 43 | real SQLite (e2e.db) | none — real browser |
 | `e2e/task-filter.spec.ts` | 22 | real SQLite (e2e.db) | none — real browser |
+| `e2e/task-search.spec.ts` | 22 | real SQLite (e2e.db) | none — real browser |
 | `e2e/task-sort.spec.ts` | 21 | real SQLite (e2e.db) | none — real browser |
 | `e2e/keyboard-focus.spec.ts` | 18 | real SQLite (e2e.db) | none — real browser |
 | `e2e/accessibility.spec.ts` | 20 | real SQLite (e2e.db) | none — real browser |
@@ -796,8 +886,12 @@ filters. Since Phase 7 it also proves the sort contract: exact orderings for
 `created`/`dueDate`/`priority` (the latter a SQL CASE, not alphabetical),
 undated-last placement, tie-breaking under every mode including the raw
 path, filter+sort composition, and that the raw path fires ONLY for priority
-with static SQL and bound status constants (`created`/`dueDate` must not
-touch `$queryRaw` at all).
+with static SQL and bound status constants (`created`/`dueDate` must not    touch `$queryRaw` at all). Since Phase 8 it also proves the search
+    contract: title/description/substring/AND semantics, case behavior,
+    wildcard literals (`%`, `_`) matched exactly through the escaped raw
+    path, filter+search+sort composition, NULL-description safety, a
+    database-side guarantee (the typed where must carry the search condition),
+    and that the remaining count ignores the search.
 
 **Does not prove:** browser behavior. `revalidatePath` is mocked precisely
 *because* it cannot run outside a Next request — see §15. Whether the UI
@@ -957,21 +1051,20 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-The remaining V1 read-side features: SEARCH or DASHBOARD STATISTICS (§8).
-Phase 7 (sorting) is complete and committed; do not start another feature
-without explicit approval of the scope.
+The last V1 read-side feature: DASHBOARD STATISTICS (§8). Phase 8 (search)
+is complete and committed; do not start it without explicit approval of the
+scope.
 
-Notes each successor phase should read first:
-  - Search (§8): no index can serve LIKE '%term%'; FTS5 or an accepted full-
-    scan cost decision is required first. The URL contract for list state now
-    has TWO validated parameters (`filter`, `sort`); a third (`q` or similar)
-    should follow the same precedent: parseTask*-style normalization,
-    defaults omitted from canonical URLs, invalid falls back, controls
-    preserve the other dimensions.
-  - Statistics (§8): would add yet another encoding of the completion rule —
-    the count and view-model pair, the Phase 6 filter mapping, and the
-    Phase 7 raw-path WHERE already encode reading completion state three
-    ways. Keep them consistent or refactor deliberately.
+Note for that phase: reading completion state is now encoded in FOUR places
+(INCOMPLETE_WHERE, isIncomplete, whereForFilter, and the raw-path WHERE),
+and §9.18's warning about a third statistics encoding applies with force —
+decide deliberately whether statistics reads through getTaskList's
+view model or adds a fifth representation.
+
+The list-state URL contract is now THREE validated parameters (filter,
+sort, search), all normalized by parseTask* functions, all omitted in
+canonical default URLs, all carried by every control. Any new list-state
+parameter must follow that precedent.
 
 Also still open, unchanged: the remote/push decision (§10.6) — CI has never
 executed remotely — and the `tsx` cleanup (§12).
@@ -980,9 +1073,9 @@ Constraints:
   - Do NOT create a remote, push, or share credentials as a side effect of
     other work.
   - Do NOT weaken the database gates or the axe allowlist.
-  - Do NOT extend the raw-SQL path beyond the priority CASE; if another sort
-    or read ever needs an expression, reconsider the typed API or a migration
-    deliberately, with a probe first.
+  - Do NOT extend the raw-SQL path further; it now serves the priority CASE
+    and escaped-LIKE search. Anything beyond that needs a deliberate design
+    with a probe first.
 
 Verify before committing anything further: npm test, npm run e2e,
 npm run typecheck, npm run lint, npm run build — or the aggregate
@@ -1298,6 +1391,46 @@ works (the field group is keyed on the created id) and is still asserted.
 - The axe allowlist is empty. Resist adding to it. If axe reports something,
   the fix belongs in the application.
 
+### Phase 8 handoff notes (new)
+
+**The probe-then-decide discipline paid twice in this phase.**
+
+- The FTS5 question was settled by checking `pragma_compile_options()`
+  (FTS5 IS available — so declining it was a design choice, not a
+  workaround) and by testing that FTS5's token model cannot express the
+  substring contract the product needs. Availability is not suitability.
+- The typed-`contains` wildcard hazard was invisible until probed:
+  `contains("_")` matched EVERY row. The L1 normalization contract (words,
+  not SQL patterns) plus the escaped raw path is what makes wildcard
+  literals safe. If Prisma ever adds an `escape` option to `contains`, the
+  raw search branch can be retired — but keep the L2 wildcard tests either
+  way.
+
+**Small API facts learned the hard way (Prisma 7.10):** the `sql` template
+has NO `.join` method; the standalone `Prisma.join(fragments, "separator")`
+takes a plain string separator, not a fragment. Both helpers are re-exported
+from `db.ts` (`sql`, `sqlJoin`).
+
+**The raw-spy test had to change shape, deliberately.** Phase 7 asserted a
+monolithic template; Phase 8 composes WHERE from fragments, so the test
+reassembles the full SQL text (top-level template strings + nested
+fragments' `.text`) and asserts security properties on the WHOLE query. When
+extending the raw path, extend that reassembly — do not weaken it back to
+checking only the top-level strings.
+
+**GET-form search subtlety:** a raw form submit always emits its field, so
+an empty or whitespace submit lands on `/?search=` or `/?search=+++` — the
+server normalizes both to no search, and the test asserts the VIEW, not the
+URL. Canonical no-search URLs are only ever produced by links (Clear, filter,
+sort) and the shared `listUrl` builder. Also: HTML entities in the empty
+state are curly quotes (`&ldquo;`), so text locators must match with a
+regex, not a straight-quote string.
+
+**Test-data lesson (recurring):** write search datasets by checking every
+field of every row against every term. "Totally unrelated task" bit me again
+— its description contained "almilkbot", a substring of the search term. The
+L2 expectations now document each match so the next reader can re-verify.
+
 ### Phase 7 handoff notes (new)
 
 **The priority CASE is probed, not assumed — and the probe record matters.**
@@ -1395,7 +1528,8 @@ which shaped the design:
   work but costs minutes instead of seconds.
 - **L3 passes with `dev.db` absent** — the isolation test's counter returns -1
   for a missing file, so the fresh-checkout case is already meaningful. No
-  CI-specific workaround was needed or added.
+  CI-specific workaround was needed or added. (Phase 8 note: same held with
+  search added — no CI changes were required.)
 - **No job-level `DATABASE_URL`** — with the variable unset, the L2 suite ran
   green in the rehearsal (the setup file assigns `integration.db`), and the
   Playwright gates accept an unset ambient value. Exporting a job-wide URL

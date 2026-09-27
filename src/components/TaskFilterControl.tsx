@@ -6,6 +6,7 @@ import {
   type TaskFilter,
   type TaskSort,
 } from "@/lib/constants";
+import { listUrl } from "@/lib/list-url";
 
 /**
  * Filter and sort navigation for the task list.
@@ -16,12 +17,13 @@ import {
  * Forward restore previous views with no client state to keep in sync. There
  * is deliberately no client island here.
  *
- * URL conventions (established in Phase 6, extended in Phase 7):
- * - `all` filter and `created` sort are the defaults and are represented by
- *   OMITTING their parameters, so `/` is always the canonical default view
- *   and no `/?filter=all` or `/?sort=created` URL is ever produced.
- * - Each control preserves the other dimension's active value, so switching
- *   the sort never drops the filter and vice versa.
+ * URL conventions (established in Phase 6, extended in Phases 7–8):
+ * - `all` filter, `created` sort, and an absent search are the defaults and
+ *   are represented by OMITTING their parameters, so `/` is always the
+ *   canonical default view.
+ * - Each control preserves every other dimension's active value, so
+ *   switching the sort never drops the filter or the search, and so on.
+ *   The URL building itself lives in the shared listUrl helper.
  *
  * The active option stays a link to its own canonical URL and is marked with
  * `aria-current="true"` — the standard way to expose "this is the current
@@ -52,28 +54,18 @@ const ACTIVE_CLASSES = `${BASE_CLASSES} border-zinc-900 bg-zinc-900 text-white`;
 
 const INACTIVE_CLASSES = `${BASE_CLASSES} border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50`;
 
-function listUrl(filter: TaskFilter, sort: TaskSort): string {
-  const params = new URLSearchParams();
-
-  if (filter !== "all") {
-    params.set("filter", filter);
-  }
-
-  if (sort !== "created") {
-    params.set("sort", sort);
-  }
-
-  const query = params.toString();
-
-  return query === "" ? "/" : `/?${query}`;
-}
-
 type ControlState = {
   activeFilter: TaskFilter;
   activeSort: TaskSort;
+  /** The active search words; carried through so links never drop them. */
+  activeSearch: string[];
 };
 
-export function TaskFilterControl({ activeFilter, activeSort }: ControlState) {
+export function TaskFilterControl({
+  activeFilter,
+  activeSort,
+  activeSearch,
+}: ControlState) {
   return (
     <nav aria-label="Task filter" className="flex flex-wrap gap-2">
       {TASK_FILTERS.map((filter) => {
@@ -82,7 +74,7 @@ export function TaskFilterControl({ activeFilter, activeSort }: ControlState) {
         return (
           <Link
             key={filter}
-            href={listUrl(filter, activeSort)}
+            href={listUrl(filter, activeSort, activeSearch)}
             aria-current={isActive ? "true" : undefined}
             className={isActive ? ACTIVE_CLASSES : INACTIVE_CLASSES}
           >
@@ -94,7 +86,11 @@ export function TaskFilterControl({ activeFilter, activeSort }: ControlState) {
   );
 }
 
-export function TaskSortControl({ activeFilter, activeSort }: ControlState) {
+export function TaskSortControl({
+  activeFilter,
+  activeSort,
+  activeSearch,
+}: ControlState) {
   return (
     <nav aria-label="Task sort" className="flex flex-wrap items-center gap-2">
       <span className="text-sm text-zinc-600">Sort:</span>
@@ -104,7 +100,7 @@ export function TaskSortControl({ activeFilter, activeSort }: ControlState) {
         return (
           <Link
             key={sort}
-            href={listUrl(activeFilter, sort)}
+            href={listUrl(activeFilter, sort, activeSearch)}
             aria-current={isActive ? "true" : undefined}
             className={isActive ? ACTIVE_CLASSES : INACTIVE_CLASSES}
           >

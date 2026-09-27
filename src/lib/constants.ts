@@ -36,6 +36,15 @@ export type TaskSort = (typeof TASK_SORTS)[number];
 export const DEFAULT_TASK_SORT: TaskSort = "created";
 
 /**
+ * Upper bound for a search term, applied before the value reaches the query
+ * layer. It bounds the SQL fragment size (one LIKE pair per whitespace-split
+ * term) and keeps absurd pastes from becoming absurd queries. Over-long
+ * input is treated as no search, matching the established
+ * invalid-input-falls-back-to-default discipline.
+ */
+export const SEARCH_MAX_LENGTH = 200;
+
+/**
  * Terminal status paired with a non-null `completedAt`. The schema stores
  * `status` as a free-form string and nothing in the project pinned a completed
  * value, so this constant is the single source of truth for it. It must stay

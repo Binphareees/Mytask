@@ -784,19 +784,43 @@ describe("getTaskList sorting", () => {
 
       expect(rawSpy).toHaveBeenCalledTimes(1);
 
-      // The template strings are static SQL; the only dynamic part is the
-      // bound status parameter. Nothing user-controlled can enter the text.
-      const strings = rawSpy.mock.calls[0][0] as unknown as TemplateStringsArray;
-      const sqlText = strings.join("?");
-      expect(sqlText).toContain("CASE");
-      expect(sqlText).toContain("WHEN 'high' THEN 0");
-      expect(sqlText).toContain("ORDER BY");
-      expect(sqlText).not.toMatch(/DROP|DELETE|INSERT|UPDATE/);
+      // The query is composed from static fragments (Phase 8 generalized the
+      // raw path, so WHERE and ORDER BY arrive as nested Sql fragments).
+      // Reassemble the full SQL text — the template strings plus every
+      // nested fragment's text — and assert the security properties on the
+      // WHOLE thing, not just the top-level chunks.
+      const [strings, ...values] = rawSpy.mock.calls[0] as unknown as [
+        TemplateStringsArray,
+        ...unknown[],
+      ];
+      const fullText =
+        strings.join("?") +
+        " " +
+        values
+          .map((value) =>
+            typeof (value as { text?: unknown })?.text === "string"
+              ? (value as { text: string }).text
+              : "",
+          )
+          .join(" ");
 
-      // The interpolated fragment carries exactly one bound value: the
-      // trusted internal TODO_STATUS constant.
-      const fragment = rawSpy.mock.calls[0][1] as { values?: unknown[] };
-      expect(fragment.values).toEqual([TODO_STATUS]);
+      expect(fullText).toContain("CASE");
+      expect(fullText).toContain("WHEN 'high' THEN 0");
+      expect(fullText).toContain("ORDER BY");
+      expect(fullText).toContain("\"status\" =");
+      expect(fullText).not.toMatch(/DROP|DELETE|INSERT|UPDATE/);
+
+      // The only bound value anywhere in the composed query is the trusted
+      // internal TODO_STATUS constant — no user-controlled text exists.
+      const boundValues: unknown[] = [];
+
+      for (const value of values) {
+        if (Array.isArray((value as { values?: unknown[] })?.values)) {
+          boundValues.push(...(value as { values: unknown[] }).values);
+        }
+      }
+
+      expect(boundValues).toEqual([TODO_STATUS]);
 
       // And the ordering is still the deliberate high->medium->low ranking.
       expect(result.tasks.map((task) => task.title)[0]).toBe("E high a");
@@ -814,5 +838,349 @@ describe("getTaskList sorting", () => {
       expect((await getTaskList({ sort })).remainingCount).toBe(9);
       expect((await getTaskList({ filter: "done", sort })).remainingCount).toBe(9);
     }
+  });
+});
+
+/**
+ * L2 — search (Phase 8).
+ *
+ * The contract decided in Phase 8: a search is a list of literal words; a
+ * row matches when EVERY word occurs in its title or description (AND across
+ * words, OR across fields). Matching is ASCII-case-insensitive (probed
+ * SQLite LIKE behavior), substring-based, and treats `%` and `_` as ordinary
+ * characters — which is why the raw path exists (typed `contains` cannot
+ * escape LIKE wildcards).
+ */
+describe("getTaskList search", () => {
+  /** Disjoint names so an over-broad match cannot fake a pass. */
+  async function seedSearchDataset(): Promise<void> {
+    await insert({
+      id: "sea-a",
+      title: "Buy milk tomorrow",
+      description: "also get eggs",
+      createdAt: new Date("2022-01-01T00:00:00Z"),
+    });
+    await insert({
+      id: "sea-b",
+      title: "MILK DELIVERY route",
+      description: null,
+      createdAt: new Date("2021-06-01T00:00:00Z"),
+    });
+    await insert({
+      id: "sea-c",
+      title: "Totally unrelated task",
+      description: "the almilkbot factory tour",
+      createdAt: new Date("2021-05-01T00:00:00Z"),
+    });
+    await insert({
+      id: "sea-d",
+      title: "Plain title",
+      description: "Nothing to see here",
+      priority: "high",
+      createdAt: new Date("2021-01-01T00:00:00Z"),
+    });
+    await insert({
+      id: "sea-e",
+      title: "Done milk archive",
+      description: "historical",
+      status: DONE_STATUS,
+      completedAt: new Date("2020-01-02T00:00:00Z"),
+      createdAt: new Date("2020-01-01T00:00:00Z"),
+    });
+    await insert({
+      id: "sea-f",
+      title: "Fifty percent off",
+      description: "offer_2026: 50% off",
+      priority: "low",
+      createdAt: new Date("2019-01-01T00:00:00Z"),
+    });
+  }
+
+  const titlesOf = (result: { tasks: Array<{ title: string }> }): string[] =>
+    result.tasks.map((task) => task.title);
+
+  it("matches a word in the title or the description", async () => {
+    await seedSearchDataset();
+
+    // Newest first: the title matches (a, b, e) plus the description-only
+    // substring match inside "almilkbot" (c) — substring, not whole-word.
+    const titles = titlesOf(await getTaskList({ search: ["milk"] }));
+
+    expect(titles).toEqual([
+      "Buy milk tomorrow",
+      "MILK DELIVERY route",
+      "Totally unrelated task",
+      "Done milk archive",
+    ]);
+  });
+
+  it("matches a word in the description when the title does not contain it", async () => {
+    await seedSearchDataset();
+
+    // "almilkbot" lives only in a description (and is a substring match —
+    // not a whole-word match).
+    expect(titlesOf(await getTaskList({ search: ["almilkbot"] }))).toEqual([
+      "Totally unrelated task",
+    ]);
+  });
+
+  it("matches substrings, not whole words", async () => {
+    await seedSearchDataset();
+
+    expect(titlesOf(await getTaskList({ search: ["route"] }))).toEqual([
+      "MILK DELIVERY route",
+    ]);
+  });
+
+  it("is ASCII-case-insensitive in both directions", async () => {
+    await seedSearchDataset();
+
+    for (const term of ["MILK", "MiLk", "milk"]) {
+      expect(titlesOf(await getTaskList({ search: [term] })), term).toEqual([
+        "Buy milk tomorrow",
+        "MILK DELIVERY route",
+        "Totally unrelated task",
+        "Done milk archive",
+      ]);
+    }
+  });
+
+  it("requires every word (AND across words), in either field", async () => {
+    await seedSearchDataset();
+
+    // "milk" AND "eggs": only the first row has both — eggs in its
+    // description, milk in its title. Word order in the query is irrelevant.
+    expect(titlesOf(await getTaskList({ search: ["milk", "eggs"] }))).toEqual([
+      "Buy milk tomorrow",
+    ]);
+    expect(titlesOf(await getTaskList({ search: ["eggs", "milk"] }))).toEqual(
+      titlesOf(await getTaskList({ search: ["milk", "eggs"] })),
+    );
+
+    // "milk" AND "delivery": only the delivery row has both (its title
+    // carries both words). Words need not be adjacent — but every word must
+    // appear somewhere in the row.
+    expect(titlesOf(await getTaskList({ search: ["milk", "delivery"] }))).toEqual([
+      "MILK DELIVERY route",
+    ]);
+  });
+
+  it("matches no rows for a term nothing contains", async () => {
+    await seedSearchDataset();
+
+    await expect(getTaskList({ search: ["zebra"] })).resolves.toEqual({
+      tasks: [],
+      remainingCount: 5,
+    });
+  });
+
+  it("treats SQL and LIKE special characters literally", async () => {
+    await seedSearchDataset();
+
+    // A lone % is a literal percent sign, not "anything": only the discount
+    // row contains one.
+    expect(titlesOf(await getTaskList({ search: ["%"] }))).toEqual([
+      "Fifty percent off",
+    ]);
+
+    // Same for the underscore: only offer_2026 contains a literal one.
+    expect(titlesOf(await getTaskList({ search: ["_"] }))).toEqual([
+      "Fifty percent off",
+    ]);
+
+    // A quote-and-semicolon paste is just text that matches nothing — and
+    // must not throw.
+    await expect(getTaskList({ search: ["'; DROP TABLE Task;--"] })).resolves.toEqual({
+      tasks: [],
+      remainingCount: 5,
+    });
+  });
+
+  it("searches NULL descriptions without crashing and empty ones as empty", async () => {
+    await seedSearchDataset();
+
+    // sea-b has a NULL description; searching for text must not trip on it.
+    expect(titlesOf(await getTaskList({ search: ["delivery"] }))).toEqual([
+      "MILK DELIVERY route",
+    ]);
+
+    // The empty description is stored as ""; it matches nothing real.
+    expect(titlesOf(await getTaskList({ search: ["historical"] }))).toEqual([
+      "Done milk archive",
+    ]);
+  });
+
+  it("composes with the todo and done filters", async () => {
+    await seedSearchDataset();
+
+    expect(titlesOf(await getTaskList({ filter: "todo", search: ["milk"] }))).toEqual([
+      "Buy milk tomorrow",
+      "MILK DELIVERY route",
+      "Totally unrelated task",
+    ]);
+    expect(titlesOf(await getTaskList({ filter: "done", search: ["milk"] }))).toEqual([
+      "Done milk archive",
+    ]);
+  });
+
+  it("composes with every sort", async () => {
+    await seedSearchDataset();
+
+    // search + created: newest first among matches.
+    expect(titlesOf(await getTaskList({ search: ["milk"], sort: "created" }))).toEqual([
+      "Buy milk tomorrow",
+      "MILK DELIVERY route",
+      "Totally unrelated task",
+      "Done milk archive",
+    ]);
+
+    // search + priority: all three todo matches are medium priority, so the
+    // createdAt DESC tail decides — newest first.
+    expect(
+      titlesOf(await getTaskList({ filter: "todo", search: ["milk"], sort: "priority" })),
+    ).toEqual([
+      "Buy milk tomorrow",
+      "MILK DELIVERY route",
+      "Totally unrelated task",
+    ]);
+
+    // search + dueDate: the "50%" term also forces the raw path, proving the
+    // wildcard branch composes with the dueDate ordering.
+    const wildcardSorted = await getTaskList({
+      search: ["50%"],
+      sort: "dueDate",
+    });
+    expect(titlesOf(wildcardSorted)).toEqual(["Fifty percent off"]);
+  });
+
+  it("returns all three dimensions composed: filter + search + sort", async () => {
+    await seedSearchDataset();
+
+    // todo + "milk" + priority: every match is medium, so the createdAt tail
+    // orders them newest first; all are open.
+    const composed = await getTaskList({
+      filter: "todo",
+      search: ["milk"],
+      sort: "priority",
+    });
+
+    expect(composed.tasks.map((task) => task.isComplete)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(titlesOf(composed)).toEqual([
+      "Buy milk tomorrow",
+      "MILK DELIVERY route",
+      "Totally unrelated task",
+    ]);
+
+    // done + "milk" + dueDate: single match, still exercised through the
+    // composed where clause.
+    expect(
+      titlesOf(await getTaskList({ filter: "done", search: ["milk"], sort: "dueDate" })),
+    ).toEqual(["Done milk archive"]);
+  });
+
+  it("performs the search in the database, not application memory", async () => {
+    await seedSearchDataset();
+    const findManySpy = vi.spyOn(prisma.task, "findMany");
+
+    try {
+      const { tasks } = await getTaskList({ search: ["milk"] });
+
+      // The typed path received the condition: three AND-ed word groups,
+      // each requiring the word in title OR description. If the
+      // implementation ever fetched everything and filtered in JavaScript,
+      // the where clause would lose the search condition and this would fail.
+      expect(findManySpy).toHaveBeenCalledTimes(1);
+      const call = findManySpy.mock.calls[0][0] as {
+        where?: { AND?: Array<Record<string, unknown>> };
+      };
+      const andConditions = call.where?.AND ?? [];
+      expect(andConditions).toHaveLength(1);
+      expect(andConditions[0]).toEqual({
+        OR: [
+          { title: { contains: "milk" } },
+          { description: { contains: "milk" } },
+        ],
+      });
+
+      // And the result actually reflects the condition (4 of 6 rows).
+      expect(tasks).toHaveLength(4);
+    } finally {
+      findManySpy.mockRestore();
+    }
+  });
+
+  it("keeps wildcard terms on the parameterized raw path", async () => {
+    await seedSearchDataset();
+    const rawSpy = vi.spyOn(prisma, "$queryRaw");
+    const findManySpy = vi.spyOn(prisma.task, "findMany");
+
+    try {
+      const { tasks } = await getTaskList({ search: ["50%"] });
+
+      // The wildcard term must NOT ride the typed contains path (which would
+      // match everything) — it goes through the raw LIKE path with ESCAPE.
+      expect(findManySpy).not.toHaveBeenCalled();
+      expect(rawSpy).toHaveBeenCalledTimes(1);
+
+      // Reassemble the full SQL text (top-level template + nested fragment
+      // text) and verify its shape.
+      const [strings, ...values] = rawSpy.mock.calls[0] as unknown as [
+        TemplateStringsArray,
+        ...unknown[],
+      ];
+      const fragmentTexts = values
+        .map((value) => (value as { text?: string })?.text ?? "")
+        .join(" ");
+      const fullText = strings.join("?") + " " + fragmentTexts;
+
+      expect(fullText).toContain("LIKE");
+      expect(fullText).toContain("ESCAPE");
+      expect(fullText).not.toMatch(/DROP|DELETE|INSERT|UPDATE/);
+      expect(fullText).not.toContain("50%");
+
+      // The term travels as a bound parameter in its escaped pattern form.
+      const boundValues: string[] = [];
+
+      for (const value of values) {
+        if (Array.isArray((value as { values?: unknown[] })?.values)) {
+          for (const inner of (value as { values: unknown[] }).values) {
+            if (typeof inner === "string") {
+              boundValues.push(inner);
+            }
+          }
+        }
+      }
+
+      expect(boundValues).toContain("%50\\%%");
+
+      // And the semantics are the literal-character contract.
+      expect(tasks.map((task) => task.title)).toEqual(["Fifty percent off"]);
+    } finally {
+      rawSpy.mockRestore();
+      findManySpy.mockRestore();
+    }
+  });
+
+  it("keeps the remaining count global regardless of the search", async () => {
+    await seedSearchDataset();
+
+    // Five rows are todo AND completedAt IS NULL. The search narrows the
+    // list but never redefines the count.
+    for (const search of [["milk"], ["zebra"], []] as const) {
+      expect((await getTaskList({ search: [...search] })).remainingCount).toBe(5);
+    }
+  });
+
+  it("is deterministic: repeated search calls return the identical order", async () => {
+    await seedSearchDataset();
+
+    const first = (await getTaskList({ search: ["milk"] })).tasks.map((task) => task.id);
+    const second = (await getTaskList({ search: ["milk"] })).tasks.map((task) => task.id);
+
+    expect(second).toEqual(first);
   });
 });

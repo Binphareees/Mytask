@@ -7,7 +7,7 @@ import {
   type TaskFilter,
   type TaskSort,
 } from "@/lib/constants";
-import { prisma, sql } from "@/lib/db";
+import { prisma, sql, sqlJoin } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 
 /**
@@ -35,6 +35,13 @@ export type TaskListOptions = {
   filter?: TaskFilter;
   /** Which ordering to apply. Defaults to `created` (the original behavior). */
   sort?: TaskSort;
+  /**
+   * Pre-normalized search words from parseTaskSearch. Every word must occur
+   * in the task's title or description (AND semantics). An empty list means
+   * no search; the words are matched literally, `%` and `_` included —
+   * they are escaped at the SQL boundary, never interpolated.
+   */
+  search?: string[];
 };
 
 type CompletionFields = {
@@ -171,6 +178,65 @@ function toListItem(row: TaskRow): TaskListItem {
 }
 
 /**
+ * Builds the typed-Prisma search condition from pre-normalized words.
+ *
+ * Every word must occur in the title OR the description (AND across words,
+ * OR across the two fields). On this stack `contains` is ASCII-case-
+ * insensitive (probed), which is the documented V1 contract.
+ *
+ * KNOWN LIMITATION, probed and deliberate: typed `contains` treats `%` and
+ * `_` as LIKE wildcards, so a term containing them would over-match. That
+ * is why the raw path exists (see {@link rawSearchConditionFor}); this
+ * typed path is only taken when NO word contains a wildcard character.
+ */
+function searchConditionFor(
+  words: string[],
+): Prisma.TaskWhereInput | undefined {
+  if (words.length === 0) {
+    return undefined;
+  }
+
+  const wordConditions = words.map((word) => ({
+    OR: [
+      { title: { contains: word } },
+      { description: { contains: word } },
+    ],
+  }));
+
+  return { AND: wordConditions };
+}
+
+/**
+ * Escapes the three characters that are special inside a LIKE pattern so a
+ * search term matches literally: backslash (the escape character itself),
+ * then `%` (any run of characters) and `_` (any single character).
+ */
+function likeLiteral(word: string): string {
+  return word.replace(/[\\%_]/g, "\\$&");
+}
+
+/**
+ * The SQL-side twin of {@link searchConditionFor}, used whenever a word
+ * contains `%` or `_`: typed `contains` cannot disable LIKE wildcard
+ * interpretation on this Prisma version, so only the parameterized raw path
+ * can match those characters literally. Every word is passed as a bound
+ * parameter (never interpolated into SQL text), and the pattern is wrapped
+ * as `%word%` with backslash-escaping so SQL wildcards inside the term lose
+ * their special meaning. Case rules are identical to the typed path
+ * (probed: LIKE is ASCII-case-insensitive here).
+ */
+function rawSearchConditionFor(words: string[]): Prisma.Sql {
+  const wordFragments = words.map(
+    (word) => sql`(
+      "title" LIKE ${`%${likeLiteral(word)}%`} ESCAPE '\\'
+      OR "description" LIKE ${`%${likeLiteral(word)}%`} ESCAPE '\\'
+    )`,
+  );
+
+  return sqlJoin(wordFragments, " AND ");
+}
+
+/**
  * The one place a raw query exists, and why it must exist.
  *
  * Priority ordering has to be a SQL CASE (high -> medium -> low). SQLite's
@@ -192,30 +258,81 @@ function toListItem(row: TaskRow): TaskListItem {
 async function findTaskRows(
   filter: TaskFilter,
   sort: TaskSort,
+  search: string[],
 ): Promise<TaskRow[]> {
-  if (sort !== "priority") {
+  const needsRaw =
+    sort === "priority" || search.some((word) => /[%_]/.test(word));
+
+  if (!needsRaw) {
     return prisma.task.findMany({
       select: SELECT_COLUMNS,
-      where: whereForFilter(filter),
+      where: composeWhere(filter, search),
       orderBy: orderByForSort(sort),
     });
   }
 
-  const whereFragment =
+  // WHERE: the validated filter (a trusted constant) AND the normalized
+  // search words (bound parameters, wildcard-escaped). Never concatenation.
+  const conditions: Prisma.Sql[] = [
     filter === "todo"
-      ? sql`WHERE "status" = ${TODO_STATUS}`
+      ? sql`"status" = ${TODO_STATUS}`
       : filter === "done"
-        ? sql`WHERE "status" = ${DONE_STATUS}`
-        : sql``;
+        ? sql`"status" = ${DONE_STATUS}`
+        : sql`1 = 1`,
+  ];
+
+  if (search.length > 0) {
+    conditions.push(rawSearchConditionFor(search));
+  }
+
+  // ORDER BY composed per validated sort mode; every mode ends with the same
+  // deterministic createdAt DESC, id DESC tail as the typed path.
+  const priorityOrder =
+    sort === "priority"
+      ? sql`CASE "priority" WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END ASC,`
+      : sql``;
+
+  const dueDateOrder =
+    sort === "dueDate"
+      ? sql`"dueDate" IS NULL ASC, "dueDate" ASC,`
+      : sql``;
 
   return prisma.$queryRaw<TaskRow[]>`
     SELECT "id", "title", "description", "priority", "dueDate", "status", "completedAt"
     FROM "Task"
-    ${whereFragment}
+    WHERE ${sqlJoin(conditions, " AND ")}
     ORDER BY
-      CASE "priority" WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END ASC,
+      ${priorityOrder}
+      ${dueDateOrder}
       "createdAt" DESC,
       "id" DESC`;
+}
+
+/**
+ * ANDs the validated filter and search conditions into one typed where
+ * clause. Both inputs are already trusted shapes (a TaskFilter narrowed by
+ * whereForFilter, and normalized words), so this only combines them.
+ */
+function composeWhere(
+  filter: TaskFilter,
+  search: string[],
+): Prisma.TaskWhereInput | undefined {
+  const statusCondition = whereForFilter(filter);
+  const searchCondition = searchConditionFor(search);
+
+  const conditions = [statusCondition, searchCondition].filter(
+    (condition): condition is Prisma.TaskWhereInput => condition !== undefined,
+  );
+
+  if (conditions.length === 0) {
+    return undefined;
+  }
+
+  if (conditions.length === 1) {
+    return conditions[0];
+  }
+
+  return { AND: conditions };
 }
 
 export async function getTaskList(
@@ -223,9 +340,10 @@ export async function getTaskList(
 ): Promise<TaskListData> {
   const filter = options.filter ?? DEFAULT_TASK_FILTER;
   const sort = options.sort ?? DEFAULT_TASK_SORT;
+  const search = options.search ?? [];
 
   const [rows, remainingCount] = await Promise.all([
-    findTaskRows(filter, sort),
+    findTaskRows(filter, sort, search),
     // The remaining count is global by design: it reports the whole list's
     // outstanding work, not the filtered slice. See PROJECT_STATE.md §9.
     prisma.task.count({ where: INCOMPLETE_WHERE }),

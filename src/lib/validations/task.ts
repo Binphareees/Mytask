@@ -5,6 +5,7 @@ import {
   DEFAULT_TASK_SORT,
   DESCRIPTION_MAX_LENGTH,
   PRIORITIES,
+  SEARCH_MAX_LENGTH,
   TASK_FILTERS,
   TASK_SORTS,
   TITLE_MAX_LENGTH,
@@ -311,4 +312,53 @@ export function parseTaskSort(value: unknown): TaskSortValidationResult {
     success: false,
     error: "Sort must be created, dueDate, or priority",
   };
+}
+
+/**
+ * The search term is normalized from the untrusted URL into a safe query
+ * shape. The normalization is deliberately user-shaped, and each rule has a
+ * reason:
+ *
+ * - A missing or empty parameter is NO search (the default view), not an
+ *   error — consistent with filter and sort.
+ * - Surrounding whitespace is trimmed: "  milk  " is a search for "milk".
+ *   A search box is not a text field where leading spaces carry meaning.
+ * - A whitespace-only term collapses to no search (trim first).
+ * - The term is whitespace-split into ordinary words; a row matches when
+ *   EVERY word occurs in its title or description (AND semantics). No
+ *   search language: no quotes, operators, negation, stemming, or ranking.
+ * - The raw `%` and `_` SQL wildcards are searched literally. On this stack
+ *   the typed `contains` treats them as wildcards (probed: `contains("_")`
+ *   matched every row), so wildcard literals require the escaped-LIKE path
+ *   in the query layer. Probing `50%` must not return the whole list.
+ * - Over-long input is treated as no search rather than an error, matching
+ *   the established fallback discipline for untrusted list-state values.
+ *
+ * Words are returned as a list, empty meaning "no search"; the query layer
+ * maps them onto trusted SQL. No URL value ever becomes SQL text.
+ */
+export function parseTaskSearch(
+  value: unknown,
+): { success: true; data: string[] } | { success: false; error: string } {
+  if (value === undefined) {
+    return { success: true, data: [] };
+  }
+
+  if (typeof value !== "string") {
+    // A repeated parameter arrives as an array; anything non-string is not a
+    // term this box can express. Fall back to the default view.
+    return { success: false, error: "Search must be a single text value" };
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed.length > SEARCH_MAX_LENGTH) {
+    return { success: false, error: "Search is too long" };
+  }
+
+  if (trimmed === "") {
+    return { success: true, data: [] };
+  }
+
+  return { success: true, data: trimmed.split(/\s+/) };
 }

@@ -9,6 +9,8 @@ type TaskListProps = {
   remainingCount: number;
   /** Which view the rows were filtered to; selects the empty state. */
   activeFilter: TaskFilter;
+  /** The active search words, joined for display in the filtered empty state. */
+  searchWords: string[];
 };
 
 type PriorityBadge = {
@@ -46,6 +48,7 @@ export function TaskList({
   tasks,
   remainingCount,
   activeFilter,
+  searchWords,
 }: TaskListProps) {
   return (
     <section aria-labelledby="task-list-heading" className="flex flex-col gap-3">
@@ -61,15 +64,24 @@ export function TaskList({
         </p>
       </div>
 
-      {tasks.length === 0 ? <EmptyState filter={activeFilter} /> : <TaskItems tasks={tasks} />}
+      {
+        tasks.length === 0 ? (
+          <EmptyState filter={activeFilter} searchWords={searchWords} />
+        ) : (
+          <TaskItems tasks={tasks} />
+        )
+      }
     </section>
   );
 }
 
 /**
- * One empty state per filter. The all view keeps the original wording
- * verbatim; the filtered views must not say "No tasks yet" — the list is
- * not empty, the current filter simply matches nothing.
+ * Empty states, selected by the active view. The all view keeps the original
+ * wording verbatim; the filtered views must not say "No tasks yet" — the
+ * list is not empty, the current filter simply matches nothing. An active
+ * search overrides the filter copy, because "no tasks match your search" is
+ * the situation the user needs to understand (search composes with the
+ * filter, so the message stays true in combined views too).
  */
 const EMPTY_STATES: Record<TaskFilter, { title: string; detail: string }> = {
   all: {
@@ -88,7 +100,29 @@ const EMPTY_STATES: Record<TaskFilter, { title: string; detail: string }> = {
   },
 };
 
-function EmptyState({ filter }: { filter: TaskFilter }) {
+function EmptyState({
+  filter,
+  searchWords,
+}: {
+  filter: TaskFilter;
+  searchWords: string[];
+}) {
+  const searchTerm = searchWords.join(" ");
+
+  if (searchTerm !== "") {
+    return (
+      <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center">
+        <p className="text-sm font-medium text-zinc-800">
+          No tasks match &ldquo;{searchTerm}&rdquo;
+        </p>
+        <p className="mt-1 text-sm text-zinc-600">
+          Try a different search, or clear it to see{' '}
+          {filter === "all" ? "every task" : "the whole view"}.
+        </p>
+      </div>
+    );
+  }
+
   const empty = EMPTY_STATES[filter];
 
   return (
