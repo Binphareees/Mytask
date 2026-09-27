@@ -20,6 +20,22 @@ export type TaskFilter = (typeof TASK_FILTERS)[number];
 export const DEFAULT_TASK_FILTER: TaskFilter = "all";
 
 /**
+ * The sort modes the task list supports. Read-side only: each maps to a
+ * fixed, trusted Prisma ordering inside the query layer — a client-supplied
+ * value never becomes an arbitrary database field.
+ *
+ *   created  -> createdAt DESC, id DESC (the pre-sorting default, unchanged)
+ *   dueDate  -> earliest due date first, undated tasks last, then newest first
+ *   priority -> high, medium, low, then newest first
+ */
+export const TASK_SORTS = ["created", "dueDate", "priority"] as const;
+
+export type TaskSort = (typeof TASK_SORTS)[number];
+
+/** The sort used when the URL carries none, or one the contract rejects. */
+export const DEFAULT_TASK_SORT: TaskSort = "created";
+
+/**
  * Terminal status paired with a non-null `completedAt`. The schema stores
  * `status` as a free-form string and nothing in the project pinned a completed
  * value, so this constant is the single source of truth for it. It must stay

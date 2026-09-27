@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseTaskFilter,
+  parseTaskSort,
   validateCreateTaskInput,
   validateDeleteTaskInput,
   validateToggleTaskCompletionInput,
@@ -722,6 +723,70 @@ describe("parseTaskFilter", () => {
     expect(parseTaskFilter("nonsense")).toEqual({
       success: false,
       error: "Filter must be all, todo, or done",
+    });
+  });
+});
+
+/**
+ * The task-list sort is normalized exactly like the filter above. The key
+ * L1 distinction: database column names are NOT sort input. `createdAt` is a
+ * real column, but the URL contract exposes the logical mode `created`, and
+ * the query layer owns the mapping between them.
+ */
+describe("parseTaskSort", () => {
+  it("accepts the three logical sort modes", () => {
+    for (const expected of ["created", "dueDate", "priority"] as const) {
+      const result = parseTaskSort(expected);
+
+      expect(result).toEqual({ success: true, data: expected });
+    }
+  });
+
+  it("treats an absent parameter as the default sort, not an error", () => {
+    expect(parseTaskSort(undefined)).toEqual({
+      success: true,
+      data: "created",
+    });
+  });
+
+  it("rejects invalid values rather than guessing a sort", () => {
+    expect(parseTaskSort("newest").success).toBe(false);
+  });
+
+  it("rejects values that are not strings", () => {
+    for (const hostile of [null, 7, true, {}, ["dueDate"], { toString: () => "dueDate" }]) {
+      expect(parseTaskSort(hostile).success).toBe(false);
+    }
+  });
+
+  it("rejects database column names and injection-shaped values", () => {
+    // These must never become ordering instructions. Note that `createdAt`
+    // and `priority` are REAL columns — the contract deliberately does not
+    // accept them as URL values; only the three logical modes survive.
+    for (const hostile of [
+      "createdAt",
+      "updatedAt",
+      "status",
+      "completedAt",
+      "id",
+      "priority DESC",
+      "priority,createdAt",
+      "dueDate; DROP TABLE Task",
+      "DROP TABLE Task",
+      "constructor",
+      "__proto__",
+      "",
+      " priority",
+      "priority ",
+    ]) {
+      expect(parseTaskSort(hostile).success).toBe(false);
+    }
+  });
+
+  it("gives the rejection a stable, human-readable error", () => {
+    expect(parseTaskSort("nonsense")).toEqual({
+      success: false,
+      error: "Sort must be created, dueDate, or priority",
     });
   });
 });

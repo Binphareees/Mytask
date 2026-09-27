@@ -58,6 +58,14 @@ test.describe("axe across all application states", () => {
     await expectNoAxeViolations(page, "filtered empty state (Active)");
   });
 
+  test("sorted and filtered view is clean", async ({ page }) => {
+    // Both list-state controls active at once (Phase 7 composition state).
+    await page.goto("/?filter=done&sort=priority");
+
+    await expect(page.getByText("No completed tasks")).toBeVisible();
+    await expectNoAxeViolations(page, "sorted + filtered empty state");
+  });
+
   test("filtered view with tasks is clean", async ({ page }) => {
     await page.goto("/");
     const done = await createTask(page, { title: "Scanned in Done" });

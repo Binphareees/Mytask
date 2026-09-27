@@ -47,7 +47,9 @@ export function filterLink(page: Page, label: "All" | "Active" | "Completed"): L
  *
  * The wait is on the URL, not on content: the list re-render is the server
  * round-trip the link click triggers, and the URL is the thing the router
- * updates first.
+ * updates first. Since Phase 7 the URL may also carry a sort, so the wait is
+ * containment (the filter parameter is present / absent) rather than an
+ * exact-URL match — the sort dimension is preserved by the control.
  */
 export async function applyFilter(
   page: Page,
@@ -56,14 +58,14 @@ export async function applyFilter(
   await filterLink(page, label).click();
 
   if (label === "All") {
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL((url) => !url.href.includes("filter="));
 
     return;
   }
 
   const expected =
     label === "Active" ? "filter=todo" : "filter=done";
-  await expect(page).toHaveURL(new RegExp(`\\?${expected}$`));
+  await expect(page).toHaveURL(new RegExp(expected));
 }
 
 /** Whether a filter option is marked as the current one. */
@@ -72,6 +74,50 @@ export async function isFilterActive(
   label: "All" | "Active" | "Completed",
 ): Promise<boolean> {
   return filterLink(page, label).evaluate(
+    (element) => element.getAttribute("aria-current") === "true",
+  );
+}
+
+/** The sort navigation, found by its accessible name. */
+export function sortNav(page: Page): Locator {
+  return page.getByRole("navigation", { name: "Task sort" });
+}
+
+/** One sort option link by its visible label (Newest first / Due date / Priority). */
+export function sortLink(
+  page: Page,
+  label: "Newest first" | "Due date" | "Priority",
+): Locator {
+  return sortNav(page).getByRole("link", { name: label, exact: true });
+}
+
+/**
+ * Clicks a sort option and waits for the URL to carry it. Like
+ * {@link applyFilter}, the wait is containment because the filter dimension
+ * is preserved by the control; the default sort is represented by omission.
+ */
+export async function applySort(
+  page: Page,
+  label: "Newest first" | "Due date" | "Priority",
+): Promise<void> {
+  await sortLink(page, label).click();
+
+  if (label === "Newest first") {
+    await expect(page).toHaveURL((url) => !url.href.includes("sort="));
+
+    return;
+  }
+
+  const expected = label === "Due date" ? "sort=dueDate" : "sort=priority";
+  await expect(page).toHaveURL(new RegExp(expected));
+}
+
+/** Whether a sort option is marked as the current one. */
+export async function isSortActive(
+  page: Page,
+  label: "Newest first" | "Due date" | "Priority",
+): Promise<boolean> {
+  return sortLink(page, label).evaluate(
     (element) => element.getAttribute("aria-current") === "true",
   );
 }

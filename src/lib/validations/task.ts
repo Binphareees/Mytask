@@ -2,9 +2,11 @@ import { z } from "zod";
 import {
   DEFAULT_PRIORITY,
   DEFAULT_TASK_FILTER,
+  DEFAULT_TASK_SORT,
   DESCRIPTION_MAX_LENGTH,
   PRIORITIES,
   TASK_FILTERS,
+  TASK_SORTS,
   TITLE_MAX_LENGTH,
 } from "@/lib/constants";
 
@@ -276,4 +278,37 @@ export function parseTaskFilter(value: unknown): TaskFilterValidationResult {
   }
 
   return { success: false, error: "Filter must be all, todo, or done" };
+}
+
+/**
+ * The task-list sort is normalized exactly like the filter above — same
+ * shape, same fallback discipline. Only the three logical modes of
+ * {@link TASK_SORTS} are accepted; database column names (`createdAt`,
+ * `updatedAt`, `status`, …) are not sort input, and the mapping onto trusted
+ * Prisma orderings happens once inside the query layer.
+ */
+export const taskSortSchema = z.enum(TASK_SORTS, {
+  error: "Sort must be created, dueDate, or priority",
+});
+
+export type TaskSortValidationResult =
+  | { success: true; data: (typeof TASK_SORTS)[number] }
+  | { success: false; error: string };
+
+export function parseTaskSort(value: unknown): TaskSortValidationResult {
+  // An absent parameter is the default ordering, not an error.
+  if (value === undefined) {
+    return { success: true, data: DEFAULT_TASK_SORT };
+  }
+
+  const result = taskSortSchema.safeParse(value);
+
+  if (result.success) {
+    return { success: true, data: result.data };
+  }
+
+  return {
+    success: false,
+    error: "Sort must be created, dueDate, or priority",
+  };
 }

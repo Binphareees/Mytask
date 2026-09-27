@@ -330,7 +330,7 @@ describe("getTaskList status filtering", () => {
   it("returns every task under the all filter, in the existing order", async () => {
     await seedFilterDataset();
 
-    const titles = (await getTaskList("all")).tasks.map((task) => task.title);
+    const titles = (await getTaskList({ filter: "all" })).tasks.map((task) => task.title);
 
     expect(titles).toEqual([
       "todo newest",
@@ -346,7 +346,7 @@ describe("getTaskList status filtering", () => {
   it("means the same as the no-argument call", async () => {
     await seedFilterDataset();
 
-    const explicit = (await getTaskList("all")).tasks;
+    const explicit = (await getTaskList({ filter: "all" })).tasks;
     const defaulted = (await getTaskList()).tasks;
 
     expect(defaulted.map((task) => task.id)).toEqual(explicit.map((task) => task.id));
@@ -355,7 +355,7 @@ describe("getTaskList status filtering", () => {
   it("returns only tasks whose status is TODO under the todo filter", async () => {
     await seedFilterDataset();
 
-    const titles = (await getTaskList("todo")).tasks.map((task) => task.title);
+    const titles = (await getTaskList({ filter: "todo" })).tasks.map((task) => task.title);
 
     // Membership is the status column, exactly as completion is stored. The
     // half-completed row (status todo, timestamp present) is therefore still
@@ -367,7 +367,7 @@ describe("getTaskList status filtering", () => {
   it("keeps the completion rule intact inside a filtered result", async () => {
     await seedFilterDataset();
 
-    const todos = (await getTaskList("todo")).tasks;
+    const todos = (await getTaskList({ filter: "todo" })).tasks;
     const byTitle = new Map(todos.map((task) => [task.title, task.isComplete]));
 
     expect(byTitle.get("todo newest")).toBe(false);
@@ -379,7 +379,7 @@ describe("getTaskList status filtering", () => {
   it("returns only tasks whose status is DONE under the done filter", async () => {
     await seedFilterDataset();
 
-    const titles = (await getTaskList("done")).tasks.map((task) => task.title);
+    const titles = (await getTaskList({ filter: "done" })).tasks.map((task) => task.title);
 
     expect(titles).toEqual(["done newer", "done older"]);
   });
@@ -387,8 +387,8 @@ describe("getTaskList status filtering", () => {
   it("never lets a todo query return done tasks, or the reverse", async () => {
     await seedFilterDataset();
 
-    const todoTitles = new Set((await getTaskList("todo")).tasks.map((task) => task.title));
-    const doneTitles = new Set((await getTaskList("done")).tasks.map((task) => task.title));
+    const todoTitles = new Set((await getTaskList({ filter: "todo" })).tasks.map((task) => task.title));
+    const doneTitles = new Set((await getTaskList({ filter: "done" })).tasks.map((task) => task.title));
 
     expect([...todoTitles].filter((title) => doneTitles.has(title))).toEqual([]);
     // The unknown status belongs to neither filtered view.
@@ -399,9 +399,9 @@ describe("getTaskList status filtering", () => {
   it("preserves the deterministic ordering inside each filter", async () => {
     await seedFilterDataset();
 
-    const allOrder = (await getTaskList("all")).tasks.map((task) => task.title);
-    const todoOrder = (await getTaskList("todo")).tasks.map((task) => task.title);
-    const doneOrder = (await getTaskList("done")).tasks.map((task) => task.title);
+    const allOrder = (await getTaskList({ filter: "all" })).tasks.map((task) => task.title);
+    const todoOrder = (await getTaskList({ filter: "todo" })).tasks.map((task) => task.title);
+    const doneOrder = (await getTaskList({ filter: "done" })).tasks.map((task) => task.title);
 
     // Each filtered view is the all view restricted to its members, in the
     // same relative order — createdAt desc with the id tie-break.
@@ -414,7 +414,7 @@ describe("getTaskList status filtering", () => {
     await insert({ id: "aaa", title: "lowest id", createdAt: sameInstant });
     await insert({ id: "zzz", title: "highest id", createdAt: sameInstant });
 
-    const titles = (await getTaskList("todo")).tasks.map((task) => task.title);
+    const titles = (await getTaskList({ filter: "todo" })).tasks.map((task) => task.title);
 
     expect(titles).toEqual(["highest id", "lowest id"]);
   });
@@ -424,7 +424,7 @@ describe("getTaskList status filtering", () => {
     // non-trivially empty.
     await insert({ title: "only done", status: DONE_STATUS, completedAt: new Date("2026-01-01T00:00:00Z") });
 
-    await expect(getTaskList("todo")).resolves.toEqual({ tasks: [], remainingCount: 0 });
+    await expect(getTaskList({ filter: "todo" })).resolves.toEqual({ tasks: [], remainingCount: 0 });
   });
 
   it("lets the database perform the filtering rather than filtering in memory", async () => {
@@ -432,7 +432,7 @@ describe("getTaskList status filtering", () => {
     const findManySpy = vi.spyOn(prisma.task, "findMany");
 
     try {
-      const { tasks } = await getTaskList("todo");
+      const { tasks } = await getTaskList({ filter: "todo" });
 
       expect(tasks.map((task) => task.title)).toEqual([
         "todo newest",
@@ -458,7 +458,7 @@ describe("getTaskList status filtering", () => {
     const findManySpy = vi.spyOn(prisma.task, "findMany");
 
     try {
-      await getTaskList("all");
+      await getTaskList({ filter: "all" });
 
       // "all" means no status condition — the exact query the list ran
       // before filtering existed. Asserted by VALUE, not key presence: the
@@ -480,7 +480,339 @@ describe("getTaskList status filtering", () => {
     // whole list's outstanding work, not the filtered slice — the Phase 6
     // decision recorded in PROJECT_STATE.md.
     for (const filter of ["all", "todo", "done"] as const) {
-      expect((await getTaskList(filter)).remainingCount).toBe(3);
+      expect((await getTaskList({ filter })).remainingCount).toBe(3);
+    }
+  });
+});
+
+/**
+ * L2 — sorting (Phase 7).
+ *
+ * The sort contract: `created` (createdAt DESC, id DESC — the pre-Phase-7
+ * default), `dueDate` (earliest first, undated last, ties newest first), and
+ * `priority` (high, medium, low — a SQL CASE, because alphabetical TEXT
+ * ordering would rank low before medium; ties newest first). Every mode ends
+ * in the same deterministic tail.
+ *
+ * The dataset has deliberate ties (two high, two low, two equal due dates),
+ * an undated majority, done rows, the half-completed todo row, and an unknown
+ * status — so ordering, tie-breaking, null placement, and filter composition
+ * are all exercised against real database behavior.
+ */
+describe("getTaskList sorting", () => {
+  /** Titles double as labels; expectations below reference them by letter. */
+  async function seedSortDataset(): Promise<void> {
+    const rows: Array<Parameters<typeof insert>[0]> = [
+      { id: "srt-a", title: "A due dec 30", dueDate: "2026-12-30", createdAt: new Date("2022-01-01T00:00:00Z") },
+      { id: "srt-b", title: "B due dec 25 a", dueDate: "2026-12-25", createdAt: new Date("2021-06-01T00:00:00Z") },
+      { id: "srt-c", title: "C due dec 25 b", dueDate: "2026-12-25", createdAt: new Date("2021-05-01T00:00:00Z") },
+      { id: "srt-d", title: "D undated a", createdAt: new Date("2021-01-01T00:00:00Z") },
+      { id: "srt-e", title: "E high a", priority: "high", createdAt: new Date("2020-06-01T00:00:00Z") },
+      { id: "srt-f", title: "F high b", priority: "high", createdAt: new Date("2020-05-01T00:00:00Z") },
+      { id: "srt-g", title: "G medium", createdAt: new Date("2020-01-01T00:00:00Z") },
+      { id: "srt-h", title: "H low a", priority: "low", createdAt: new Date("2019-06-01T00:00:00Z") },
+      { id: "srt-i", title: "I low b", priority: "low", createdAt: new Date("2019-05-01T00:00:00Z") },
+      { id: "srt-j", title: "J done newest", status: DONE_STATUS, completedAt: new Date("2018-12-02T00:00:00Z"), createdAt: new Date("2018-12-01T00:00:00Z") },
+      { id: "srt-k", title: "K done older", status: DONE_STATUS, completedAt: new Date("2018-01-02T00:00:00Z"), createdAt: new Date("2018-01-01T00:00:00Z") },
+      { id: "srt-l", title: "L half completed", completedAt: new Date("2017-01-02T00:00:00Z"), createdAt: new Date("2017-01-01T00:00:00Z") },
+      { id: "srt-m", title: "M outsider", status: "archived", createdAt: new Date("2016-01-01T00:00:00Z") },
+    ];
+
+    for (const row of rows) {
+      await insert(row);
+    }
+  }
+
+  const titlesOf = (result: { tasks: Array<{ title: string }> }): string[] =>
+    result.tasks.map((task) => task.title);
+
+  it("orders newest first by default, identical to the pre-sorting behavior", async () => {
+    await seedSortDataset();
+
+    // The no-options call IS the created sort: existing users must see the
+    // exact ordering they saw before Phase 7.
+    const defaulted = titlesOf(await getTaskList());
+    const explicit = titlesOf(await getTaskList({ sort: "created" }));
+
+    expect(defaulted).toEqual(explicit);
+    expect(defaulted).toEqual([
+      "A due dec 30",
+      "B due dec 25 a",
+      "C due dec 25 b",
+      "D undated a",
+      "E high a",
+      "F high b",
+      "G medium",
+      "H low a",
+      "I low b",
+      "J done newest",
+      "K done older",
+      "L half completed",
+      "M outsider",
+    ]);
+  });
+
+  it("ranks priority high, medium, low — not alphabetically", async () => {
+    await seedSortDataset();
+
+    const titles = titlesOf(await getTaskList({ sort: "priority" }));
+
+    // Alphabetical TEXT ordering would rank low before medium (l < m). The
+    // CASE ranking must put the high pair first, then every medium, then the
+    // low pair — with each equal-priority group newest first.
+    expect(titles).toEqual([
+      "E high a",
+      "F high b",
+      "A due dec 30",
+      "B due dec 25 a",
+      "C due dec 25 b",
+      "D undated a",
+      "G medium",
+      "J done newest",
+      "K done older",
+      "L half completed",
+      "M outsider",
+      "H low a",
+      "I low b",
+    ]);
+  });
+
+  it("breaks priority ties with the deterministic newest-first tail", async () => {
+    await seedSortDataset();
+
+    const titles = titlesOf(await getTaskList({ sort: "priority" }));
+
+    // The two high rows and the two low rows differ only in createdAt, so
+    // their relative order proves the tie-break.
+    expect(titles.indexOf("E high a")).toBeLessThan(titles.indexOf("F high b"));
+    expect(titles.indexOf("H low a")).toBeLessThan(titles.indexOf("I low b"));
+  });
+
+  it("orders due dates earliest first and places undated tasks last", async () => {
+    await seedSortDataset();
+
+    const titles = titlesOf(await getTaskList({ sort: "dueDate" }));
+
+    // Dated tasks first, ascending calendar order (TEXT comparison of
+    // YYYY-MM-DD is chronological), then undated tasks newest first.
+    expect(titles).toEqual([
+      "B due dec 25 a",
+      "C due dec 25 b",
+      "A due dec 30",
+      "D undated a",
+      "E high a",
+      "F high b",
+      "G medium",
+      "H low a",
+      "I low b",
+      "J done newest",
+      "K done older",
+      "L half completed",
+      "M outsider",
+    ]);
+  });
+
+  it("breaks equal due dates by newest first", async () => {
+    await seedSortDataset();
+
+    const titles = titlesOf(await getTaskList({ sort: "dueDate" }));
+
+    // B and C share 2026-12-25; B was created later and must come first.
+    expect(titles.indexOf("B due dec 25 a")).toBeLessThan(
+      titles.indexOf("C due dec 25 b"),
+    );
+  });
+
+  it("makes the tie-breaker load-bearing: it can reverse insertion order", async () => {
+    // Inserted in ASCENDING createdAt order, so if the tail (createdAt DESC,
+    // id DESC) were dropped, SQLite's natural rowid scan would return these
+    // in insertion order and this test would fail. A tie must never be left
+    // to whatever the database happens to return.
+    await insert({ id: "tb-early", title: "Tiebreak early", createdAt: new Date("2020-01-01T00:00:00Z"), priority: "high", dueDate: "2026-05-05" });
+    await insert({ id: "tb-late", title: "Tiebreak late", createdAt: new Date("2020-06-01T00:00:00Z"), priority: "high", dueDate: "2026-05-05" });
+
+    const byPriority = titlesOf(await getTaskList({ sort: "priority" }));
+    const byDueDate = titlesOf(await getTaskList({ sort: "dueDate" }));
+
+    // Equal priority, equal due date: only the createdAt DESC tail decides.
+    expect(byPriority.indexOf("Tiebreak late")).toBeLessThan(byPriority.indexOf("Tiebreak early"));
+    expect(byDueDate.indexOf("Tiebreak late")).toBeLessThan(byDueDate.indexOf("Tiebreak early"));
+  });
+
+  it("breaks exact-createdAt ties by id descending under every sort", async () => {
+    // Same instant for both rows AND the same priority/due-date shape, so
+    // only the final `id DESC` leg can order them. (The Phase 6 ordering
+    // suite proves this for the created sort; this proves it survives in
+    // every sorted path, including the raw priority query.)
+    const sameInstant = new Date("2023-06-01T12:00:00Z");
+    await insert({ id: "tie-aaa", title: "Id tie lowest", createdAt: sameInstant, priority: "high", dueDate: "2026-08-08" });
+    await insert({ id: "tie-zzz", title: "Id tie highest", createdAt: sameInstant, priority: "high", dueDate: "2026-08-08" });
+
+    for (const sort of ["created", "dueDate", "priority"] as const) {
+      const titles = titlesOf(await getTaskList({ sort }));
+
+      expect(titles.indexOf("Id tie highest"), `sort=${sort}`).toBeLessThan(
+        titles.indexOf("Id tie lowest"),
+      );
+    }
+  });
+
+  it("keeps the half-completed todo row in the todo view under every sort", async () => {
+    await seedSortDataset();
+
+    // Membership is the status column; the sort must not change it.
+    for (const sort of ["created", "dueDate", "priority"] as const) {
+      const titles = titlesOf(await getTaskList({ filter: "todo", sort }));
+
+      expect(titles, `sort=${sort}`).toContain("L half completed");
+      expect(titles, `sort=${sort}`).not.toContain("J done newest");
+      expect(titles, `sort=${sort}`).not.toContain("M outsider");
+    }
+  });
+
+  it("composes the todo filter with each sort at the database level", async () => {
+    await seedSortDataset();
+
+    const byPriority = titlesOf(await getTaskList({ filter: "todo", sort: "priority" }));
+    const byDueDate = titlesOf(await getTaskList({ filter: "todo", sort: "dueDate" }));
+
+    // Priority: high pair, mediums newest first (done and unknown excluded),
+    // low pair last.
+    expect(byPriority).toEqual([
+      "E high a",
+      "F high b",
+      "A due dec 30",
+      "B due dec 25 a",
+      "C due dec 25 b",
+      "D undated a",
+      "G medium",
+      "L half completed",
+      "H low a",
+      "I low b",
+    ]);
+
+    // Due date: dated first ascending, then undated newest first.
+    expect(byDueDate).toEqual([
+      "B due dec 25 a",
+      "C due dec 25 b",
+      "A due dec 30",
+      "D undated a",
+      "E high a",
+      "F high b",
+      "G medium",
+      "H low a",
+      "I low b",
+      "L half completed",
+    ]);
+  });
+
+  it("composes the done filter with each sort at the database level", async () => {
+    await seedSortDataset();
+
+    for (const sort of ["created", "dueDate", "priority"] as const) {
+      const titles = titlesOf(await getTaskList({ filter: "done", sort }));
+
+      // J was created (and completed) after K; every sort agrees here because
+      // both are medium priority and undated — the tail decides.
+      expect(titles, `sort=${sort}`).toEqual(["J done newest", "K done older"]);
+    }
+  });
+
+  it("is deterministic: repeated calls return the identical order", async () => {
+    await seedSortDataset();
+
+    const first = (await getTaskList({ sort: "priority" })).tasks.map((task) => task.id);
+    const second = (await getTaskList({ sort: "priority" })).tasks.map((task) => task.id);
+    const dueFirst = (await getTaskList({ sort: "dueDate" })).tasks.map((task) => task.id);
+    const dueSecond = (await getTaskList({ sort: "dueDate" })).tasks.map((task) => task.id);
+
+    expect(second).toEqual(first);
+    expect(dueSecond).toEqual(dueFirst);
+  });
+
+  it("returns an empty collection without throwing when filter and sort match nothing", async () => {
+    // beforeEach emptied the table; a done row makes the todo view empty for
+    // every sort, and the done view is non-trivially non-empty.
+    await insert({ title: "only done", status: DONE_STATUS, completedAt: new Date("2026-01-01T00:00:00Z") });
+
+    for (const sort of ["created", "dueDate", "priority"] as const) {
+      await expect(getTaskList({ filter: "todo", sort })).resolves.toEqual({
+        tasks: [],
+        remainingCount: 0,
+      });
+    }
+
+    expect(titlesOf(await getTaskList({ filter: "done", sort: "priority" }))).
+      toEqual(["only done"]);
+  });
+
+  it("sends trusted ordering to Prisma: raw path only for priority", async () => {
+    await seedSortDataset();
+    const rawSpy = vi.spyOn(prisma, "$queryRaw");
+    const findManySpy = vi.spyOn(prisma.task, "findMany");
+
+    try {
+      await getTaskList({ sort: "created" });
+      await getTaskList({ sort: "dueDate" });
+
+      // created and dueDate are expressible in the typed query API — no raw
+      // SQL may be involved.
+      expect(rawSpy).not.toHaveBeenCalled();
+      expect(findManySpy).toHaveBeenCalledTimes(2);
+
+      // The dueDate mapping is the trusted constant: explicit nulls-last.
+      const dueCall = findManySpy.mock.calls[1][0] as {
+        orderBy?: unknown;
+      };
+      expect(dueCall.orderBy).toEqual([
+        { dueDate: { sort: "asc", nulls: "last" } },
+        { createdAt: "desc" },
+        { id: "desc" },
+      ]);
+    } finally {
+      rawSpy.mockRestore();
+      findManySpy.mockRestore();
+    }
+  });
+
+  it("sends a parameterized CASE ordering on the raw priority path", async () => {
+    await seedSortDataset();
+    const rawSpy = vi.spyOn(prisma, "$queryRaw");
+
+    try {
+      const result = await getTaskList({ filter: "todo", sort: "priority" });
+
+      expect(rawSpy).toHaveBeenCalledTimes(1);
+
+      // The template strings are static SQL; the only dynamic part is the
+      // bound status parameter. Nothing user-controlled can enter the text.
+      const strings = rawSpy.mock.calls[0][0] as unknown as TemplateStringsArray;
+      const sqlText = strings.join("?");
+      expect(sqlText).toContain("CASE");
+      expect(sqlText).toContain("WHEN 'high' THEN 0");
+      expect(sqlText).toContain("ORDER BY");
+      expect(sqlText).not.toMatch(/DROP|DELETE|INSERT|UPDATE/);
+
+      // The interpolated fragment carries exactly one bound value: the
+      // trusted internal TODO_STATUS constant.
+      const fragment = rawSpy.mock.calls[0][1] as { values?: unknown[] };
+      expect(fragment.values).toEqual([TODO_STATUS]);
+
+      // And the ordering is still the deliberate high->medium->low ranking.
+      expect(result.tasks.map((task) => task.title)[0]).toBe("E high a");
+    } finally {
+      rawSpy.mockRestore();
+    }
+  });
+
+  it("keeps the remaining count global regardless of the sort", async () => {
+    await seedSortDataset();
+
+    // Nine rows are todo AND completedAt IS NULL. The sort changes neither
+    // the filter nor the count's global meaning.
+    for (const sort of ["created", "dueDate", "priority"] as const) {
+      expect((await getTaskList({ sort })).remainingCount).toBe(9);
+      expect((await getTaskList({ filter: "done", sort })).remainingCount).toBe(9);
     }
   });
 });

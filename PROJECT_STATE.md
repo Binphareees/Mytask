@@ -4,22 +4,56 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: Phase 6 (task filtering) complete, `main`. Authoritative
+Last verified against repository: Phase 7 (task sorting) complete, `main`. Authoritative
 commit: see `git log -1`.
 
 ---
 
 ## 1. Current Phase
 
-**Task Filtering** — Phase 6 of the task sequence complete. The task list can
-be filtered by completion status (`all` / `todo` / `done`) through URL search
-parameters, with the filtering performed by the database query. Phases 1–5
-(test infrastructure, defect fixes, CI enforcement) are complete; remaining
-V1 features are search, sort, and dashboard statistics (§8).
+**Task Sorting** — Phase 7 of the task sequence complete. The task list can
+be sorted by created date, due date, or priority, composed with the Phase 6
+filter through URL search parameters, with both operations performed by the
+database query. Phases 1–6 (test infrastructure, defect fixes, CI
+enforcement, filtering) are complete; remaining V1 features are search and
+dashboard statistics (§8).
 
 ## 2. Current Milestone
 
-**Phase 6 — Task filtering: COMPLETE and committed.**
+**Phase 7 — Task sorting: COMPLETE and committed.**
+
+- **Sort contract:** `created` (createdAt DESC, id DESC — the pre-Phase-7
+  default, unchanged), `dueDate` (earliest first, undated tasks LAST,
+  ties newest first), `priority` (high, medium, low, ties newest first).
+  Every mode ends in the same deterministic tail.
+- **URL contract:** `sort` joins `filter` as the second list-state parameter:
+  bare `/` is the canonical default (no `?sort=created` URL is ever
+  produced), `/?sort=priority` and `/?filter=todo&sort=priority` are the
+  composed views. Each control preserves the other dimension; invalid or
+  repeated values fall back to the default (same discipline as Phase 6).
+- **Priority ordering is a SQL CASE, not alphabetical TEXT comparison** —
+  probed against Prisma 7.10: the typed `orderBy` accepts only asc/desc
+  (a CASE expression fails validation), so the priority path runs one
+  parameterized `$queryRaw` with a static ORDER BY. The only interpolated
+  values are the two trusted status constants. No migration, no new column,
+  no in-memory sorting. `created` and `dueDate` remain on the typed path
+  (`dueDate` uses `nulls: "last"`, which the better-sqlite3 adapter does
+  honor on SQLite).
+- **Due-date semantics:** dated tasks first, ascending (TEXT comparison of
+  `YYYY-MM-DD` is chronological); undated last ("dated is actionable now,
+  undated can wait"); explicit via `nulls: "last"`, never accidental.
+- **Mutation audit (5 mutations, all caught, all restored byte-identically):**
+  dueDate direction reversed → 3 failures; raw tail removed → 2; CASE →
+  alphabetical → 3; sort link dropping the filter → 1; in-memory sorting →
+  2 (the spy test). The tail-removal drill exposed a real data gap — no test
+  had equal-`createdAt` rows under the sorted paths — closed with a permanent
+  id-tie test before the mutation was re-run.
+
+**Suite totals after Phase 7: 361 permanent tests (103 L1 + 103 L2 + 155 L3).**
+The Phase 6 baseline was 318 (97 L1 + 88 L2 + 133 L3), re-verified before any
+change.
+
+**The previous milestone — Phase 6 — added task filtering:**
 
 - **Contract:** three logical filter states — `all` (no status condition),
   `todo` (status = TODO_STATUS), `done` (status = DONE_STATUS). The mapping is
@@ -94,8 +128,11 @@ before any change was made.
   and a due date can now be added, replaced, *and cleared* through the edit form
 - **Filtering by completion status** (`all` / `todo` / `done`) via URL search
   parameters, applied by the database query, with filter-aware empty states
+- **Sorting by created / dueDate / priority** via a second URL parameter,
+  composed with the filter, applied by the database query (CASE-backed for
+  priority), with deterministic tie-breaking
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
-- **Permanent test suite: 318 tests (97 L1 + 88 L2 + 133 L3), all passing**,
+- **Permanent test suite: 361 tests (103 L1 + 103 L2 + 155 L3), all passing**,
   each layer against its own dedicated disposable database — and enforced by
   CI (`.github/workflows/ci.yml`)
 - `test`, `e2e`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
@@ -104,16 +141,37 @@ before any change was made.
   lint, L1+L2, the production build, and L3 with axe — validated locally
   against a clean checkout; not yet executed remotely (no remote)
 
-**Currently being developed:** nothing. Phase 6 is finished.
+**Currently being developed:** nothing. Phase 7 is finished.
 
-**Working tree:** clean at the Phase 6 commit.
+**Working tree:** clean at the Phase 7 commit.
 
-**Not yet built:** search, sort, dashboard statistics (see §8).
+**Not yet built:** search, dashboard statistics (see §8).
 Not yet decided: a git remote / first push (§10.6, §14).
 
 ## 4. Last Completed Milestone
 
-### Phase 6 — Task filtering (current)
+### Phase 7 — Task sorting (current)
+
+Files touched: `constants.ts` (`TASK_SORTS`), `validations/task.ts`
+(`parseTaskSort`), `db.ts` (typed `Prisma.sql` re-export), `queries/tasks.ts`
+(options-object API, `orderByForSort`, `findTaskRows` with the raw priority
+path), `page.tsx` (both parameters), `TaskFilterControl.tsx` (added
+`TaskSortControl`, shared canonical `listUrl`), tests (`task.test.ts` L1,
+`tasks.test.ts` L2, `task-ui.ts` helpers, new `task-sort.spec.ts`, one new
+axe scan). No CRUD action was modified; no migration was created.
+
+| Aspect | Decision |
+|---|---|
+| Sort values | `created` / `dueDate` / `priority` (logical names only — `createdAt` and other column names are NOT valid URL values) |
+| URL | `?sort=` joins `?filter=`; defaults omitted; each control preserves the other; invalid/repeated → default |
+| Default | `created` = `createdAt DESC, id DESC` — byte-identical to the pre-Phase-7 ordering |
+| Priority | SQL CASE high→0, medium→1, low→2 via parameterized `$queryRaw` (typed orderBy cannot express it — probed) |
+| Due date | `asc` + `nulls: "last"` on the typed path; earliest first, undated last |
+| Tie-breaking | `createdAt DESC, id DESC` tail on every mode, typed and raw alike |
+| Index | None added; the existing `@@index([status])` still serves the filter, and at V1 scale the sort scan is trivial (§12 keeps the `priority` index tied to demonstrating need) |
+| Raw-SQL surface | Exactly one raw query, static ORDER BY, explicit column list, only trusted constants interpolated; L2 spy test pins it |
+
+### Phase 6 — Task filtering (previous milestone)
 
 Files touched: `constants.ts` (filter states), `validations/task.ts`
 (`parseTaskFilter`), `queries/tasks.ts` (typed filter + conditional where),
@@ -251,16 +309,17 @@ semantics, and adds genuine containment, all local to the component:
 
 | Field | Value |
 |---|---|
-| Message | `feat: add task filtering` |
+| Message | `feat: add task sorting` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `035eb12` (`ci: add automated quality gates`) |
+| Parent | `1edd9ca` (`feat: add task filtering`) |
 | Branch | `main` |
 | Remotes | none configured (repo is local-only; CI has therefore never run remotely) |
 
-**Full history (13 commits, oldest last):**
+**Full history (14 commits, oldest last):**
 
 ```
-<this commit>  feat: add task filtering
+<this commit>  feat: add task sorting
+1edd9ca  feat: add task filtering
 035eb12  ci: add automated quality gates
 2c4789b  fix: resolve verified accessibility and due date issues
 d066cfd  test: add browser E2E and accessibility suite
@@ -361,6 +420,7 @@ security/browser verification pass at the time of implementation.
 | Delete task | `deleteTask` (`tasks.ts:113`), `TaskDeleteControl.tsx` |
 | Complete / incomplete | `toggleTaskCompletion` (`tasks.ts:61`), `TaskCompletionButton.tsx` |
 | **Filter by status** | URL `?filter=todo\|done`, `parseTaskFilter` (`validations/task.ts`), `whereForFilter` + conditional `where` in `getTaskList`, `TaskFilterControl.tsx` |
+| **Sort** | URL `?sort=dueDate\|priority`, `parseTaskSort`, `orderByForSort` + the raw CASE path in `findTaskRows`, `TaskSortControl.tsx` |
 | Title (required) | `schema.prisma:12`; trimmed, 1–200 |
 | Description (optional) | `schema.prisma:13`; 0–2000 |
 | Priority | `constants.ts:1`; `low` / `medium` / `high` |
@@ -377,7 +437,7 @@ None of these are started. All are read-side additions to the query layer.
 |---|---|
 | ~~**Filter by status**~~ | **Shipped in Phase 6** via URL search params; `getTaskList()` now takes an optional validated filter and defaults to `all`. |
 | **Search** | No index can serve `LIKE '%term%'` in SQLite; will be a full scan. Needs FTS5 or an accepted cost decision. |
-| **Sort** | Ordering is currently fixed (`createdAt desc, id desc`). **No `priority` index exists** — add it when sort ships. |
+| ~~**Sort**~~ | **Shipped in Phase 7** (`created` / `dueDate` / `priority` via `?sort=`). The `priority` index was NOT added: no demonstrated need at V1 scale (see §12). |
 | **Dashboard statistics** | Only `remainingCount` exists. **Warning: this creates a *third* encoding of the completion rule** — see §9. |
 
 ## 9. Important Architectural Decisions
@@ -632,17 +692,18 @@ never proof of accessibility (see §11).
 **L1** pure validation unit tests · **L2** server-action + query-layer
 integration against real SQLite · **L3** Playwright E2E.
 
-### Permanent tests in the repository: **318** — 97 L1 + 88 L2 + 133 L3
+### Permanent tests in the repository: **361** — 103 L1 + 103 L2 + 155 L3
 
 | Suite | Tests | Database | Mocks |
 |---|---|---|---|
-| `src/lib/validations/task.test.ts` | 97 | none (pure) | none |
+| `src/lib/validations/task.test.ts` | 103 | none (pure) | none |
 | `src/actions/tasks.test.ts` | 54 | real SQLite | `next/cache` only |
-| `src/lib/queries/tasks.test.ts` | 34 | real SQLite | none |
+| `src/lib/queries/tasks.test.ts` | 49 | real SQLite | none |
 | `e2e/task-crud.spec.ts` | 43 | real SQLite (e2e.db) | none — real browser |
 | `e2e/task-filter.spec.ts` | 22 | real SQLite (e2e.db) | none — real browser |
+| `e2e/task-sort.spec.ts` | 21 | real SQLite (e2e.db) | none — real browser |
 | `e2e/keyboard-focus.spec.ts` | 18 | real SQLite (e2e.db) | none — real browser |
-| `e2e/accessibility.spec.ts` | 19 | real SQLite (e2e.db) | none — real browser |
+| `e2e/accessibility.spec.ts` | 20 | real SQLite (e2e.db) | none — real browser |
 | `e2e/responsive.spec.ts` | 11 | real SQLite (e2e.db) | none — real browser |
 | `e2e/database-safety.spec.ts` | 20 | reads e2e.db + dev.db | none |
 
@@ -729,10 +790,14 @@ id desc` with the same tie-break, and that its SQL count agrees with its
 per-row `isComplete` flags across inconsistent rows. Since Phase 6 it also
 proves the filter contract: `all` sends no status condition (`where:
 undefined`, asserted by value), `todo`/`done` send the trusted status
-constants to Prisma (spy-verified, so the database — not the app — filters),
-ordering is preserved inside each filtered view, an unmatched filter resolves
+constants to Prisma (spy-verified, so the database — not the app — filters),  ordering is preserved inside each filtered view, an unmatched filter resolves
 to an empty collection, and the remaining count is identical under all three
-filters.
+filters. Since Phase 7 it also proves the sort contract: exact orderings for
+`created`/`dueDate`/`priority` (the latter a SQL CASE, not alphabetical),
+undated-last placement, tie-breaking under every mode including the raw
+path, filter+sort composition, and that the raw path fires ONLY for priority
+with static SQL and bound status constants (`created`/`dueDate` must not
+touch `$queryRaw` at all).
 
 **Does not prove:** browser behavior. `revalidatePath` is mocked precisely
 *because* it cannot run outside a Next request — see §15. Whether the UI
@@ -863,7 +928,7 @@ Deliberately postponed. **Do not add these without explicit approval.**
 | Bulk actions, CSV export | Out of V1. |
 | PWA | Out of V1. |
 | CI | ~~Deferred~~ **Done in Phase 5** — `.github/workflows/ci.yml` (§4). Remote execution still pending the remote decision (§10.6). |
-| `priority` index | Add when sort ships; irrelevant at current scale. |
+| `priority` index | Sort shipped in Phase 7 WITHOUT it: no demonstrated need at current scale, and adding an index "because indexes are good" was explicitly out of scope. Revisit only if a real workload shows the filesort. |
 | FTS / search index | Decide when search ships. |
 | Server log redaction | Before any hosted deployment. |
 | Multi-step `dueDate` (times, reminders) | Not in V1. |
@@ -892,21 +957,21 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-The remaining V1 read-side features: SEARCH, SORT, or DASHBOARD STATISTICS
-(§8) — in whatever order the product decision ranks them. Phase 6 (filtering)
-is complete and committed; do not start another feature without explicit
-approval of the scope.
+The remaining V1 read-side features: SEARCH or DASHBOARD STATISTICS (§8).
+Phase 7 (sorting) is complete and committed; do not start another feature
+without explicit approval of the scope.
 
 Notes each successor phase should read first:
   - Search (§8): no index can serve LIKE '%term%'; FTS5 or an accepted full-
-    scan cost decision is required first. Do not bolt it onto `?filter=`;
-    decide the URL contract deliberately.
-  - Sort (§8): ordering is fixed in `getTaskList` (`createdAt desc, id desc`);
-    a `priority` index must be added when sort ships (migration required).
-  - Statistics (§8): would create a THIRD encoding of the completion rule
-    alongside `INCOMPLETE_WHERE` and `isIncomplete()` — the §9 warning and
-    the Phase 6 filter mapping now make FOUR places that encode reading
-    completion state; keep them consistent or refactor deliberately.
+    scan cost decision is required first. The URL contract for list state now
+    has TWO validated parameters (`filter`, `sort`); a third (`q` or similar)
+    should follow the same precedent: parseTask*-style normalization,
+    defaults omitted from canonical URLs, invalid falls back, controls
+    preserve the other dimensions.
+  - Statistics (§8): would add yet another encoding of the completion rule —
+    the count and view-model pair, the Phase 6 filter mapping, and the
+    Phase 7 raw-path WHERE already encode reading completion state three
+    ways. Keep them consistent or refactor deliberately.
 
 Also still open, unchanged: the remote/push decision (§10.6) — CI has never
 executed remotely — and the `tsx` cleanup (§12).
@@ -915,9 +980,9 @@ Constraints:
   - Do NOT create a remote, push, or share credentials as a side effect of
     other work.
   - Do NOT weaken the database gates or the axe allowlist.
-  - Do NOT add search/sort/statistics piecemeal without deciding the URL
-    contract for list state first (the filter set the precedent: one
-    validated parameter, canonical URLs, invalid falls back to default).
+  - Do NOT extend the raw-SQL path beyond the priority CASE; if another sort
+    or read ever needs an expression, reconsider the typed API or a migration
+    deliberately, with a probe first.
 
 Verify before committing anything further: npm test, npm run e2e,
 npm run typecheck, npm run lint, npm run build — or the aggregate
@@ -1232,6 +1297,47 @@ works (the field group is keyed on the created id) and is still asserted.
   `document-title` flake it fixes was real at roughly 1 run in 3.
 - The axe allowlist is empty. Resist adding to it. If axe reports something,
   the fix belongs in the application.
+
+### Phase 7 handoff notes (new)
+
+**The priority CASE is probed, not assumed — and the probe record matters.**
+Against Prisma 7.10 + the better-sqlite3 adapter: a `Sql` expression inside
+`orderBy: { priority: … }` fails validation (`Expected SortOrder, provided
+Object`) — the typed API cannot express a CASE ranking; `{ priority: {
+values: […] } }` is NOT a feature despite looking like one in an error echo;
+`$queryRaw` DOES exist on the adapter-based client and runs the CASE query;
+the adapter honors `nulls: "last"` on the typed path; raw rows return
+`dueDate` as TEXT and `completedAt` as `Date | null`, so the JS completion
+rule is representation-independent. Delete the probes after use; the
+findings live here and in the L2 tests.
+
+**The `sql` import is `Prisma.sql`, not a deep runtime import.** The
+runtime's own value is exported as `sqltag` (untyped name) while its
+declarations export `sql`/`Sql` — a generated-client re-export mismatch that
+breaks a naive `import { sql } from "@prisma/client/runtime/client"` AND a
+tsx destructured import. The generated `Prisma` namespace re-exports the
+properly typed tag (`Prisma.sql`, plus `empty`/`join`/`raw`); `db.ts`
+re-exports that one constant. Do not hand-roll a Sql type to work around it.
+
+**Two test-design lessons the mutation audit bought:**
+
+- A tie-breaker test must be able to FAIL if the tie-breaker is removed. The
+  first tail-removal drill passed because the tie pair differed in the very
+  column that survived the mutation. Fixed permanently: pairs inserted in
+  ASCENDING createdAt order (so only the DESC tail can order them) and an
+  equal-createdAt pair with explicit ids (so only the `id` leg can order
+  them), asserted under every sort including the raw path.
+- URL assertions that changed from exact-match to containment
+  (`toHaveURL((url) => …)`) exist because composed URLs are order-agnostic
+  (`?filter=…&sort=…`); keep the canonical-BUILDER guarantees asserted in the
+  component/parse tests, and keep browser waits permissive.
+
+**Operational:** interrupted Playwright runs leave the webServer holding port
+3100 (`reuseExistingServer: false` then blocks every retry — kill the
+`next-server` pid from `ss -ltnp`, never `pkill -f` by name, which kills the
+invoking shell). The Phase 6 mutation-restore protocol (pristine copy in
+/tmp, mutate, restore by copy, verify by checksum, NEVER `git checkout --`
+on uncommitted work) held for all five Phase 7 drills.
 
 ### Phase 6 handoff notes (new)
 
