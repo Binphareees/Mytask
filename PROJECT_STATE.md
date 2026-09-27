@@ -77,8 +77,10 @@ clean GitHub Actions environment:
   lint clean; production build compiled successfully; the E2E gate drove a
   real `next build` + `next start` server including the axe scans; `dev.db`
   untouched throughout.
-- **Phase 9.6** documents this milestone (this commit) and rides the same
-  pipeline as the second remote run. Details in §4 and §15.
+- **Phase 9.6** documents this milestone and rides the same pipeline. Its
+  first remote run (`36354869871`) failed one E2E test — a settled-state
+  race in two Phase 7-era sort assertions, fixed test-only (§4, §15); the
+  application was byte-identical to the commit that had just passed.
 
 **The previous milestone — Phase 8 — added task search:**
 
@@ -272,7 +274,7 @@ remote itself.
 | Gates | typecheck clean; lint clean; production build compiled successfully; axe scans ran inside the L3 suite |
 | DATABASE_URL handling | exactly as designed: per-step tooling export to `.test/db/tooling.db`, no job-level value; the L2/E2E gates governed themselves |
 | `dev.db` | md5 `3a8be6b55df5e79d2510cf82d47ab3a3`, mtime unchanged — never touched |
-| Fixes required | none — the workflow passed on the first remote attempt, so no code, test, or YAML change was made |
+| Fixes required | First run: none — passed on the first remote attempt. Second run (`36354869871`, this docs commit): one E2E failure — a settled-state race in two Phase 7-era sort assertions, fixed test-only with `expect.poll` (§15, Phase 9.6 notes). No application or workflow change. |
 
 ### Phase 9 — Dashboard statistics (previous milestone)
 
@@ -1535,6 +1537,35 @@ in the transcript log and `gh` opens the activation page itself.
 Playwright suite 1.9m). No step needed a flag the local rehearsal had not
 already proven, and nothing in the ubuntu-latest image surprised the
 pipeline.
+
+### Phase 9.6 handoff notes (new)
+
+**The repo's first remote CI failure was a flake, not a regression — and the
+failure artifact proved it.** Run `36354869871` (a docs-only commit whose
+application tree was byte-identical to the passing run `36353767478`) failed
+`task-sort.spec.ts:341` with `Expected: 1, Received: 0`, identically on the
+rerun. Downloading `playwright-failure-evidence` and reading
+`error-context.md` settled it: the page snapshot taken *after* the assertion
+threw showed the settled, exactly-expected order `[Anchor low, Move by
+priority]`, both rows at Low, the edit form closed. The application was
+correct; the test read too early.
+
+**Mechanism (a new concrete instance of the Phase 9 settled-state lesson):**
+an edit that re-sorts the list but does not rename the row leaves
+`toBeVisible()` true in BOTH the pre- and post-edit orders, so it proves
+nothing about the revalidation, and the following `rowPosition` call was a
+single immediate DOM read that raced the RSC update and saw the pre-edit
+position. These Phase 7-era assertions predate the "never a single immediate
+read" rule. **Rule going forward: any assertion that reads list ORDER after a
+mutation must poll (or wait for an observable post-mutation marker such as a
+title or count change) before reading position.**
+
+**Fix, strengthening not weakening:** the two post-edit re-sort assertions
+(priority at :341 and its due-date twin) now `expect.poll(() => rowPosition(…))`
+— the `task-stats` convention. A genuinely broken re-sort still fails by
+timing out; only the race is gone. Locally: typecheck/lint clean, all 21
+task-sort tests green against the production server, and the two tests now
+take ~2s each — the poll simply waits out the revalidation the old code lost.
 
 ### Phase 8 handoff notes (new)
 

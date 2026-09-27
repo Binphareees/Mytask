@@ -336,10 +336,14 @@ test.describe("sort and CRUD interactions", () => {
     await editForm.getByLabel("Priority").selectOption("low");
     await editForm.getByRole("button", { name: "Save changes" }).click();
 
-    // After the edit the row must re-sort to the low group's position.
+    // After the edit the row must re-sort to the low group's position. The
+    // title never changed, so the row is already visible BEFORE the edit's
+    // revalidation lands — a single position read races the RSC update and
+    // saw the pre-edit order in CI (run 36354869871). Poll the settled order
+    // instead; a genuinely broken re-sort still fails by timing out.
     await expect(taskRow(page, "Move by priority")).toBeVisible();
-    expect(await rowPosition(page, "Move by priority")).toBe(1);
-    expect(await rowPosition(page, "Anchor low")).toBe(0);
+    await expect.poll(() => rowPosition(page, "Move by priority")).toBe(1);
+    await expect.poll(() => rowPosition(page, "Anchor low")).toBe(0);
   });
 
   test("editing a due date moves the task under due-date sort", async ({
@@ -358,9 +362,11 @@ test.describe("sort and CRUD interactions", () => {
     await editForm.getByLabel("Due date").fill("2026-01-01");
     await editForm.getByRole("button", { name: "Save changes" }).click();
 
-    // Now the edited row has the earliest date and must lead.
+    // Now the edited row has the earliest date and must lead. Same settled-
+    // state rule as the priority test above: the title did not change, so a
+    // single read can race the revalidation and see the pre-edit position.
     await expect(taskRow(page, "Move by date")).toBeVisible();
-    expect(await rowPosition(page, "Move by date")).toBe(0);
+    await expect.poll(() => rowPosition(page, "Move by date")).toBe(0);
   });
 
   test("editing a title does not change the sort position", async ({
