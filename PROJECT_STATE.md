@@ -4,7 +4,7 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: Phase 9.6 (remote CI verification) complete, `main` in sync with
+Last verified against repository: Phase 9.7 (V1 wrap-up tooling) complete, `main` in sync with
 `origin/main` (`https://github.com/Binphareees/ArewaTalk.git`). Authoritative commit: see `git log -1`.
 
 ---
@@ -17,12 +17,17 @@ are global (`total` / `open` / `completed`), `open` reuses the list count's
 own completion rule object, and `completed` is derived arithmetically — no
 new completion-rule encoding was introduced.
 
-**Phase 9.5/9.6 — Operational verification (current):** the repository is
+**Phase 9.5/9.6 — Operational verification:** the repository is
 now pushed to `https://github.com/Binphareees/ArewaTalk.git` and the CI
 workflow has executed remotely: run `36353767478` (`CI / quality-gates`)
 passed every gate at `0b4e373` — 241 Vitest + 184 Playwright = **425 tests**,
 clean typecheck, lint, and production build — identical to the local
 baseline. No application, schema, or migration change was required (§4).
+
+**Phase 9.7 — V1 wrap-up tooling (current):** the stale create-next-app README
+was replaced with an accurate README written from repository facts, and the
+unused `tsx` devDependency was removed with the lockfile synced. Documentation
+and tooling only — no application, schema, or migration change (§4).
 
 ## 2. Current Milestone
 
@@ -248,16 +253,32 @@ before any change was made.
 **Currently being developed:** nothing. Phase 9 is finished — **V1 is
 feature-complete**.
 
-**Working tree:** clean at the Phase 9 commit (`0b4e373`), in sync with
-`origin/main`.
+**Working tree:** clean at the Phase 9.7 commit, in sync with
+`origin/main` (run `git log -1` — this file is part of that commit).
 
-**Not yet decided:** V1 wrap-up tooling (stale README, unused `tsx`). The
-git remote / first-push decision was made in Phase 9.5:
+**Resolved in Phase 9.7:** the wrap-up tooling items (stale README, unused
+`tsx`) — see §4. The git remote / first-push decision was made in Phase 9.5:
 `https://github.com/Binphareees/ArewaTalk.git`, pushed and CI-verified.
 
 ## 4. Last Completed Milestone
 
-### Phase 9.5/9.6 — Remote CI verification (current)
+### Phase 9.7 — V1 wrap-up tooling (current)
+
+Documentation and tooling hygiene only. Verified with the full local ladder
+(`npm run test:all`, chained with `&&`, all gates exit 0): typecheck, lint,
+Vitest 241/241, production build, Playwright 184/184. `dev.db` verified
+byte-identical after the run (md5 `3a8be6b55df5e79d2510cf82d47ab3a3`, mtime
+unchanged); `prisma/migrations` unchanged — still only the two committed
+migrations.
+
+| Change | Detail |
+|---|---|
+| README.md | create-next-app boilerplate replaced with an accurate README written strictly from repository facts: what the app is, stack table, Node 22 requirement, setup (`cp .env.example .env`, `db:deploy`), scripts table incl. `test:all`, the three test layers = 425 tests, database/test-safety conventions, the CI workflow, single-user scope notes. Nothing invented; no deployment story added. |
+| `tsx` removed | `npm uninstall tsx`: package.json lost the one devDependency line; package-lock.json +30/−1 — the root `tsx` entry is gone and `esbuild`/`@esbuild/*` were reclassified `"peer": true` (two also `"optional": true`) because they are now reachable only via vite's optional peer. `tsx` is still installed transitively (`vitest → vite → tsx`) — expected, not a direct dependency. |
+| PROJECT_STATE.md | This file: §1/§3/§5 history, §10.5 and §10.17 resolved, §11/§12 updated, §14 rewritten, §15 notes added. |
+| Remote CI | Pushed to `origin/main` and monitored to completion at push time; the run's own GitHub Actions record for this commit is the numbered source of truth — this file, committed as part of that run's commit, cannot contain the run ID. |
+
+### Phase 9.5/9.6 — Remote CI verification
 
 Verification-and-documentation phase only: no application, schema,
 migration, UI, or workflow change. Files touched: this file only, plus the
@@ -482,16 +503,18 @@ semantics, and adds genuine containment, all local to the component:
 
 | Field | Value |
 |---|---|
-| Message | `docs: record remote CI verification` |
+| Message | `chore: refresh README and remove unused tsx` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `0b4e373` (`feat: add dashboard statistics`) |
+| Parent | `b38197a` (`test: poll settled order after priority/date edits in e2e`) |
 | Branch | `main` (tracks `origin/main`) |
 | Remotes | `origin` → `https://github.com/Binphareees/ArewaTalk.git` (Phase 9.5); first remote CI run `36353767478` passed |
 
-**Full history (17 commits, oldest last):**
+**Full history (19 commits, oldest last):**
 
 ```
-<this commit>  docs: record remote CI verification
+<this commit>  chore: refresh README and remove unused tsx
+b38197a  test: poll settled order after priority/date edits in e2e
+98959c6  docs: record remote CI verification
 0b4e373  feat: add dashboard statistics
 dd99d8e  feat: add task search
 3bc0576  feat: add task sorting
@@ -797,10 +820,10 @@ never proof of accessibility (see §11).
    but the limit of automated checking, and the reason L3 is not just an axe
    run. See §11.
 
-5. **`README.md` is unmodified `create-next-app` boilerplate.** It gives a wrong
-   path (`app/page.tsx`; the file is `src/app/page.tsx`) and Vercel deployment
-   instructions that cannot apply to a SQLite app. It documents none of this
-   project's architecture or invariants.
+5. ~~**`README.md` is unmodified `create-next-app` boilerplate.**~~
+   **RESOLVED in Phase 9.7.** The README now documents the actual application,
+   stack, setup, scripts, test layers, database/test-safety conventions, and
+   CI — written strictly from repository facts (§4).
 
 6. ~~**No git remote — and, since Phase 5, no enforced gate has actually run remotely.**~~
    **RESOLVED in Phase 9.5.** The repository is pushed to
@@ -872,8 +895,9 @@ never proof of accessibility (see §11).
     client component from importing the DB graph; only the bundler's accidental
     correctness prevents it today.
 
-17. **`tsx` is installed but unused.** Vitest compiles TS natively, so `tsx` is
-    dead weight. Removal has now been deferred through three phases; see §12.
+17. ~~**`tsx` is installed but unused.**~~ **RESOLVED in Phase 9.7.** The
+    devDependency and its root lockfile entry are gone (§4); it survives only
+    as vite's optional peer, resolved transitively.
 
 ## 11. Testing Status
 
@@ -1115,7 +1139,8 @@ remains the only coverage that class of defect has.
   due-date bug have been **inverted into tests of the fixed behaviour**; the
   names now describe the fix, and their comments preserve the original
   measurements.
-- `tsx` remains installed and unused (§17).
+- ~~`tsx` remains installed and unused (§17).~~ Resolved in Phase 9.7 —
+  removed as a direct dependency; survives only as vite's optional peer.
 
 
 ## 12. Deferred Work
@@ -1135,7 +1160,7 @@ Deliberately postponed. **Do not add these without explicit approval.**
 | FTS / search index | Decide when search ships. |
 | Server log redaction | Before any hosted deployment. |
 | Multi-step `dueDate` (times, reminders) | Not in V1. |
-| `tsx` | **Unused**; removal deferred through four phases. Deliberately **not** removed in Phase 5: the phase's scope was CI only. A dedicated tooling PR remains the right place. |
+| `tsx` | ~~Removal deferred~~ **Removed in Phase 9.7** (`npm uninstall tsx`, lockfile synced). Still installed transitively as vite's optional peer — expected, not a regression. |
 
 ## 13. Current Constraints
 
@@ -1160,15 +1185,13 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-**V1 is feature-complete and CI-proven on a real remote** (Phase 9.5: run
-`36353767478` passed every gate at `0b4e373`; §10.6). The remaining items
-are product/tooling decisions, not features:
+**V1 is feature-complete, CI-proven on a real remote, and wrapped up.**
+Phase 9.7 closed the last tooling items (README rewritten, `tsx` removed).
+Nothing is queued. Remaining items are optional decisions, not features:
 
-  1. V1 wrap-up tooling: the stale create-next-app README (§10.5) and the
-     unused `tsx` dependency (§10.17, §12) — a dedicated tooling PR.
-  2. Optional remote hardening: branch protection on `main` (require the
+  1. Optional remote hardening: branch protection on `main` (require the
      `CI / quality-gates` check) — a repository-settings decision, not code.
-  3. Any post-V1 work (auth before multi-user, dark-mode CSS cleanup, FTS5
+  2. Any post-V1 work (auth before multi-user, dark-mode CSS cleanup, FTS5
      if search scale ever demands it) is documented in §12 and needs its own
      approved scope.
 
@@ -1726,6 +1749,22 @@ linted as such — ESLint does not pick up YAML, and the workflow's `run:`
 blocks reference the existing npm scripts rather than reimplementing them.
 The one script added (`test:all`) is an aggregate of existing scripts; no
 existing script was renamed or changed.
+
+### Phase 9.7 handoff notes (new)
+
+- **The README's source of truth is the repository.** Every claim in it
+  (scripts, ports, test counts, DB paths, CI steps) was taken from
+  package.json, the workflow file, and the test setup files — nothing
+  aspirational, no deployment story. If a script is renamed or a test layer
+  changes, update the README in the same commit.
+- **`npm uninstall tsx` does not remove tsx from node_modules**, and
+  `npm ls tsx` still shows `vitest@4.1.11 → vite@8.3.1 → tsx@4.23.15`: vite
+  declares tsx as an *optional* peer, so in package-lock.json (+30/−1) the
+  esbuild/@esbuild/* binaries and rollup's esbuild flipped to
+  `"peer": true` instead of being deleted. That is npm's correct
+  representation of the graph, not a failed removal.
+- Do not "re-add" tsx to make `npm ls` cleaner. Vitest compiles TS natively
+  and never needed it as a direct dependency.
 
 ### Environment note
 
