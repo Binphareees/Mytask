@@ -4,8 +4,8 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: Phase 9 (dashboard statistics) complete, `main`. Authoritative
-commit: see `git log -1`.
+Last verified against repository: Phase 9.6 (remote CI verification) complete, `main` in sync with
+`origin/main` (`https://github.com/Binphareees/ArewaTalk.git`). Authoritative commit: see `git log -1`.
 
 ---
 
@@ -16,6 +16,13 @@ V1 feature list is now fully shipped** (§8 has no remaining rows). Statistics
 are global (`total` / `open` / `completed`), `open` reuses the list count's
 own completion rule object, and `completed` is derived arithmetically — no
 new completion-rule encoding was introduced.
+
+**Phase 9.5/9.6 — Operational verification (current):** the repository is
+now pushed to `https://github.com/Binphareees/ArewaTalk.git` and the CI
+workflow has executed remotely: run `36353767478` (`CI / quality-gates`)
+passed every gate at `0b4e373` — 241 Vitest + 184 Playwright = **425 tests**,
+clean typecheck, lint, and production build — identical to the local
+baseline. No application, schema, or migration change was required (§4).
 
 ## 2. Current Milestone
 
@@ -49,6 +56,29 @@ The Phase 8 baseline was 410 (115 L1 + 118 L2 + 177 L3). **Correction to the
 Phase 8 record:** this file previously split 410 as "138 L2 + 157 L3", which
 contradicted its own per-file table; the per-file numbers were always right
 and the layer labels were not. The totals were, and are, correct.
+
+**Milestone — Phase 9.5/9.6 — remote CI verification (newest).** The
+repository now has a GitHub remote and the CI workflow has passed from a
+clean GitHub Actions environment:
+
+- **Remote:** `https://github.com/Binphareees/ArewaTalk.git` (public, empty
+  at first push), added as `origin`; branch `main`. Authentication used the
+  `gh` CLI device flow (scopes `repo`, `workflow`); the token lives in the OS
+  keyring and never passed through any session transcript.
+- **First push:** all 16 commits to that point (`035eb12`…`0b4e373`);
+  `origin/main` = `0b4e373` = local `main`, in sync.
+- **First remote run:** `36353767478` (`CI / quality-gates`), triggered by
+  the push, **success** at `0b4e373` (~3m13s). Every step green: install →
+  Prisma generate → next typegen → typecheck → lint → Vitest → production
+  build → Playwright browser install → E2E. The failure-artifact step
+  correctly skipped (`if: failure()`).
+- **Remote results, identical to the local baseline:** Vitest 241 passed
+  (3 files), Playwright 184 passed (1.9m) — **425/425**; typecheck clean;
+  lint clean; production build compiled successfully; the E2E gate drove a
+  real `next build` + `next start` server including the axe scans; `dev.db`
+  untouched throughout.
+- **Phase 9.6** documents this milestone (this commit) and rides the same
+  pipeline as the second remote run. Details in §4 and §15.
 
 **The previous milestone — Phase 8 — added task search:**
 
@@ -152,7 +182,8 @@ suite has 54 tests, not 56 (corrected in §11).
 `.github/workflows/ci.yml` reproduces every quality gate (install, Prisma
 generate, typegen, typecheck, lint, L1+L2, build, L3 with axe) in a clean
 environment, validated by a full clean-checkout rehearsal. Remote execution
-remains unobserved: the repository still has no git remote (§10.6, §14).
+is no longer unobserved: since Phase 9.5 the repository is pushed to GitHub
+and the workflow has passed remotely (§10.6, §4).
 
 **Earlier — Phase 4 — fixed five demonstrated defects**, each
 previously pinned by a permanent regression marker in the L2/L3 suites and now
@@ -202,27 +233,48 @@ before any change was made.
 - **Dashboard statistics** (global `total` / `open` / `completed`) that
   reuse the list count's completion rule and derive `completed` arithmetically
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
-- **Permanent test suite: 425 tests (115 L1 + 126 L2 + 184 L3), all passing**,  each layer against its own dedicated disposable database — and enforced by
-  CI (`.github/workflows/ci.yml`)
+- **Permanent test suite: 425 tests (115 L1 + 126 L2 + 184 L3), all passing**,
   each layer against its own dedicated disposable database — and enforced by
-  CI (`.github/workflows/ci.yml`)
+  CI (`.github/workflows/ci.yml`), remote-verified at Phase 9.5/9.6 (§4)
 - `test`, `e2e`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
 - **CI enforcement in the repository** (`.github/workflows/ci.yml`): one
   GitHub Actions job reproducing install, Prisma generate, typegen, typecheck,
   lint, L1+L2, the production build, and L3 with axe — validated locally
-  against a clean checkout; not yet executed remotely (no remote)
+  against a clean checkout **and proven remotely**: first run `36353767478`
+  passed at `0b4e373` (Phase 9.5/9.6, §4)
 
 **Currently being developed:** nothing. Phase 9 is finished — **V1 is
 feature-complete**.
 
-**Working tree:** clean at the Phase 9 commit.
+**Working tree:** clean at the Phase 9 commit (`0b4e373`), in sync with
+`origin/main`.
 
-**Not yet decided:** a git remote / first push (§10.6, §14); V1 wrap-up
-tooling (stale README, unused `tsx`).
+**Not yet decided:** V1 wrap-up tooling (stale README, unused `tsx`). The
+git remote / first-push decision was made in Phase 9.5:
+`https://github.com/Binphareees/ArewaTalk.git`, pushed and CI-verified.
 
 ## 4. Last Completed Milestone
 
-### Phase 9 — Dashboard statistics (current)
+### Phase 9.5/9.6 — Remote CI verification (current)
+
+Verification-and-documentation phase only: no application, schema,
+migration, UI, or workflow change. Files touched: this file only, plus the
+remote itself.
+
+| Aspect | Result |
+|---|---|
+| Remote | `https://github.com/Binphareees/ArewaTalk.git` added as `origin` (public; empty at first push) |
+| Auth | `gh` CLI device-flow browser login as `Binphareees` (scopes `repo`, `workflow`); git credentials via `gh auth setup-git`; token in the OS keyring |
+| Push | `git push -u origin main`: all 16 commits; `origin/main` = `0b4e373` = local `main` |
+| First run | `36353767478` — `CI / quality-gates`, push-triggered, **success** (~3m13s) |
+| Steps | checkout → Node 22 + npm cache → `npm ci` → `prisma generate` → `next typegen` → typecheck → lint → Vitest → production build → Playwright browser install → E2E — all success; failure-artifact upload skipped (correct: `if: failure()`) |
+| Remote tests | 241 Vitest (3 files) + 184 Playwright (1.9m) = **425 passed** — identical to the local Phase 9 baseline |
+| Gates | typecheck clean; lint clean; production build compiled successfully; axe scans ran inside the L3 suite |
+| DATABASE_URL handling | exactly as designed: per-step tooling export to `.test/db/tooling.db`, no job-level value; the L2/E2E gates governed themselves |
+| `dev.db` | md5 `3a8be6b55df5e79d2510cf82d47ab3a3`, mtime unchanged — never touched |
+| Fixes required | none — the workflow passed on the first remote attempt, so no code, test, or YAML change was made |
+
+### Phase 9 — Dashboard statistics (previous milestone)
 
 Files touched: `queries/tasks.ts` (`TaskStats`, `getTaskStats`,
 `getDashboardData` — existing functions untouched), `page.tsx` (one call),
@@ -428,16 +480,17 @@ semantics, and adds genuine containment, all local to the component:
 
 | Field | Value |
 |---|---|
-| Message | `feat: add dashboard statistics` |
+| Message | `docs: record remote CI verification` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `dd99d8e` (`feat: add task search`) |
-| Branch | `main` |
-| Remotes | none configured (repo is local-only; CI has therefore never run remotely) |
+| Parent | `0b4e373` (`feat: add dashboard statistics`) |
+| Branch | `main` (tracks `origin/main`) |
+| Remotes | `origin` → `https://github.com/Binphareees/ArewaTalk.git` (Phase 9.5); first remote CI run `36353767478` passed |
 
-**Full history (16 commits, oldest last):**
+**Full history (17 commits, oldest last):**
 
 ```
-<this commit>  feat: add dashboard statistics
+<this commit>  docs: record remote CI verification
+0b4e373  feat: add dashboard statistics
 dd99d8e  feat: add task search
 3bc0576  feat: add task sorting
 1edd9ca  feat: add task filtering
@@ -747,16 +800,17 @@ never proof of accessibility (see §11).
    instructions that cannot apply to a SQLite app. It documents none of this
    project's architecture or invariants.
 
-6. **No git remote — and, since Phase 5, no enforced gate has actually run remotely.**
-   `git remote` is empty. The CI workflow exists and was validated locally
-   (syntax, structure, and a full clean-checkout rehearsal of every step), but
-   it has **never executed on GitHub Actions** because nothing has ever been
-   pushed. Creating a remote and pushing is an explicit decision (§12), and
-   until it is made, the enforcement claim rests on the local rehearsal alone.
-   Expected first-run risks, each rehearsed and mitigated: the ubuntu runner
-   installs the browser's system dependencies (`--with-deps`), and the
-   `prisma.config.ts` env resolution failure is prevented by exporting a safe
-   `DATABASE_URL` for the tooling steps.
+6. ~~**No git remote — and, since Phase 5, no enforced gate has actually run remotely.**~~
+   **RESOLVED in Phase 9.5.** The repository is pushed to
+   `https://github.com/Binphareees/ArewaTalk.git` and the workflow has now
+   **executed on GitHub Actions**: run `36353767478` (`CI / quality-gates`)
+   passed every gate at `0b4e373` on the first remote attempt — 241 Vitest +
+   184 Playwright = 425 tests, clean typecheck, lint, and production build —
+   with no workflow or application change. The rehearsed first-run risks did
+   not materialize: `--with-deps` installed the browser's system libraries
+   and the per-step tooling `DATABASE_URL` carried `prisma generate` /
+   `next typegen` / `next build`. (History retained: until then, the
+   enforcement claim rested on the local clean-checkout rehearsal alone.)
 
 7. **`status` and `priority` are unconstrained TEXT columns** (`schema.prisma:14-15`).
    No enum, no `CHECK`. Largely forced — Prisma does not support `enum` on
@@ -1052,9 +1106,9 @@ remains the only coverage that class of defect has.
 
 - **Chromium only.** No Firefox or WebKit project, and no mobile-browser project;
   responsive coverage changes the viewport, not the engine.
-- **No remote, so CI has never actually run.** The workflow is committed and
-  locally validated, but `git remote` is empty — the first real gate execution
-  happens at the first push (§10.6, §14).
+- ~~**No remote, so CI has never actually run.**~~ **Resolved in Phase 9.5** —
+  the first push triggered run `36353767478`, which passed every gate
+  (§10.6, §4).
 - The Phase 3 regression markers for the §10 accessibility defects and the
   due-date bug have been **inverted into tests of the fixed behaviour**; the
   names now describe the fix, and their comments preserve the original
@@ -1074,7 +1128,7 @@ Deliberately postponed. **Do not add these without explicit approval.**
 | Subtasks, Kanban | Out of V1. |
 | Bulk actions, CSV export | Out of V1. |
 | PWA | Out of V1. |
-| CI | ~~Deferred~~ **Done in Phase 5** — `.github/workflows/ci.yml` (§4). Remote execution still pending the remote decision (§10.6). |
+| CI | ~~Deferred~~ **Done in Phase 5** — `.github/workflows/ci.yml` (§4). **Remote execution proven in Phase 9.5** (run `36353767478`, success). |
 | `priority` index | Sort shipped in Phase 7 WITHOUT it: no demonstrated need at current scale, and adding an index "because indexes are good" was explicitly out of scope. Revisit only if a real workload shows the filesort. |
 | FTS / search index | Decide when search ships. |
 | Server log redaction | Before any hosted deployment. |
@@ -1104,23 +1158,21 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-**V1 is feature-complete.** All defined read-side features ship: filtering,
-sorting, searching, and dashboard statistics, enforced by 425 permanent
-tests, typecheck, lint, the production build, axe, and the CI workflow.
+**V1 is feature-complete and CI-proven on a real remote** (Phase 9.5: run
+`36353767478` passed every gate at `0b4e373`; §10.6). The remaining items
+are product/tooling decisions, not features:
 
-The remaining items are product/tooling decisions, not features:
-
-  1. The remote/push decision (§10.6) — CI has never executed remotely; one
-     push converts the validated workflow into real enforcement.
-  2. V1 wrap-up tooling: the stale create-next-app README (§10.5) and the
+  1. V1 wrap-up tooling: the stale create-next-app README (§10.5) and the
      unused `tsx` dependency (§10.17, §12) — a dedicated tooling PR.
+  2. Optional remote hardening: branch protection on `main` (require the
+     `CI / quality-gates` check) — a repository-settings decision, not code.
   3. Any post-V1 work (auth before multi-user, dark-mode CSS cleanup, FTS5
      if search scale ever demands it) is documented in §12 and needs its own
      approved scope.
 
 Constraints:
-  - Do NOT create a remote, push, or share credentials as a side effect of
-    other work.
+  - The remote is an enforcement/backup target, not a deployment target;
+    authentication (§12) remains a hard blocker before any hosted use.
   - Do NOT weaken the database gates or the axe allowlist.
   - Do NOT extend the raw-SQL path further without a deliberate design and
     a probe.
@@ -1461,6 +1513,29 @@ works (the field group is keyed on the created id) and is still asserted.
   does not carry, extend the query layer — do not reach around it from the
   page.
 
+### Phase 9.5 handoff notes (new)
+
+**How the remote was stood up (repeatable):** `gh` was not installed, so the
+official binary tarball was placed user-locally (`~/.local/bin/gh`, no sudo;
+v2.101.0). Auth used `gh auth login --web --scopes repo,workflow` — the
+`workflow` scope is required because history contains commits touching
+`.github/workflows/ci.yml`. Git credentials come from `gh auth setup-git`
+(keyring-backed helper); no token ever appeared in a transcript.
+
+**`gh auth login` under a non-interactive pty stalls on terminal queries.**
+The prompt emits `ESC[6n` (cursor-position request) and blocks until
+something replies — piping keystrokes alone never advances past the first
+prompt. Working recipe: run it under `script -q -f` with stdin from a FIFO,
+write `ESC[1;1R` and then `ESC[24;80R` to the FIFO when the survey queries
+appear, then send `y` / Enter for the prompts; the device code then appears
+in the transcript log and `gh` opens the activation page itself.
+
+**Push and run facts:** the 16-commit push listed run `36353767478` within
+~15s; the job completed in ~3m10s (remote Vitest step well under a minute,
+Playwright suite 1.9m). No step needed a flag the local rehearsal had not
+already proven, and nothing in the ubuntu-latest image surprised the
+pipeline.
+
 ### Phase 8 handoff notes (new)
 
 **The probe-then-decide discipline paid twice in this phase.**
@@ -1610,8 +1685,10 @@ which shaped the design:
 - **Chromium only, as configured.** No new browser projects were added to make
   CI "more thorough" — that would change the suite, not enforce it.
 
-**The first real CI run is still unobserved.** No remote exists; nothing was
-created, asked for, or pushed. Expected first-run risks are named in §10.6.
+~~**The first real CI run is still unobserved.**~~ **Observed in Phase 9.5** —
+run `36353767478` passed at `0b4e373` and none of the rehearsed first-run
+risks materialized (§10.6, §4). The clean-checkout rehearsal above remains
+the repeat procedure for future workflow changes.
 
 **Workflow-file hygiene.** `.github/` is not application source and is not
 linted as such — ESLint does not pick up YAML, and the workflow's `run:`
@@ -1621,8 +1698,10 @@ existing script was renamed or changed.
 
 ### Environment note
 
-- Repo has **no git remote**. Nothing has ever been pushed. If backup or CI is
-  wanted, that is a decision to make explicitly.
+- Repo remote: `origin` = `https://github.com/Binphareees/ArewaTalk.git`
+  (added Phase 9.5); `main` tracks `origin/main`. Backup and remote CI now
+  exist; treat the remote as an enforcement/backup target, not a deployment
+  target (§12, §14).
 
 ---
 
