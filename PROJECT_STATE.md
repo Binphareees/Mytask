@@ -4,22 +4,53 @@
 > This file describes **current state**, not documentation. See `README.md` for
 > what the project is. Git history remains the source of truth for how it got here.
 
-Last verified against repository: Phase 8 (task search) complete, `main`. Authoritative
+Last verified against repository: Phase 9 (dashboard statistics) complete, `main`. Authoritative
 commit: see `git log -1`.
 
 ---
 
 ## 1. Current Phase
 
-**Task Search** — Phase 8 of the task sequence complete. The task list can be
-searched by title and description, composed with the Phase 6 filter and the
-Phase 7 sort through URL search parameters, with all three read-side
-operations performed by the database query. Phases 1–7 are complete; the only
-remaining V1 feature is dashboard statistics (§8).
+**Dashboard Statistics** — Phase 9 of the task sequence complete, and **the
+V1 feature list is now fully shipped** (§8 has no remaining rows). Statistics
+are global (`total` / `open` / `completed`), `open` reuses the list count's
+own completion rule object, and `completed` is derived arithmetically — no
+new completion-rule encoding was introduced.
 
 ## 2. Current Milestone
 
-**Phase 8 — Task search: COMPLETE and committed.**
+**Phase 9 — Dashboard statistics: COMPLETE and committed.**
+
+- **Contract (audited, then approved):** `TaskStats = { total, open,
+  completed }`; global — identical on every filter/sort/search URL;
+  `open` IS the list's remaining-count rule (same `INCOMPLETE_WHERE` object);
+  `completed = total − open`, deliberately NOT `count(status = done)` — the
+  half-completed and unknown-status rows are complete per the view model, and
+  the arithmetic identity preserves that. `open ≡ remainingCount` is pinned
+  by an L2 no-drift test; `completed` is pinned against the per-row flags.
+- **Data path:** `getTaskStats()` and a thin `getDashboardData(options)`
+  live in `queries/tasks.ts` beside the existing reads; the page awaits one
+  call. Two parallel `prisma.task.count` queries; no raw SQL, no new trust
+  boundary (stats take no user input), no schema or migration change.
+- **UI:** a `TaskStatsSection` (`<dl>`, `aria-label`, `aria-live="polite"` —
+  deliberately not assertive, and the list's pinned "N tasks remaining" copy
+  is untouched) above the list controls.
+- **Mutation audit — including one honest miss:** open-as-done → 4 failures;
+  completed-as-done → 2; **stats-narrowed-by-filter initially caught by
+  NOTHING** — the todo filter is a mathematical no-op on `INCOMPLETE_WHERE`
+  (it already implies `status = todo`), so the first compose test could never
+  see the mutation. The test was strengthened to the observable `done`
+  filter case (open would collapse 2 → 0), the drill re-run, and the
+  mutation then caught by 1 test. That asymmetry is now documented in the
+  test itself.
+
+**Suite totals after Phase 9: 425 permanent tests (115 L1 + 126 L2 + 184 L3).**
+The Phase 8 baseline was 410 (115 L1 + 118 L2 + 177 L3). **Correction to the
+Phase 8 record:** this file previously split 410 as "138 L2 + 157 L3", which
+contradicted its own per-file table; the per-file numbers were always right
+and the layer labels were not. The totals were, and are, correct.
+
+**The previous milestone — Phase 8 — added task search:**
 
 - **Contract:** a search is a list of literal words (whitespace-split, AND
   across words); a row matches when EVERY word occurs in its title OR its
@@ -168,8 +199,11 @@ before any change was made.
 - **Searching title + description** via a third URL parameter, composed with
   filter and sort, applied by the database query (escaped-LIKE raw path for
   wildcard-literal terms), with per-word AND semantics
+- **Dashboard statistics** (global `total` / `open` / `completed`) that
+  reuse the list count's completion rule and derive `completed` arithmetically
 - SQLite persistence via Prisma 7 + better-sqlite3 adapter, 2 applied migrations
-- **Permanent test suite: 410 tests (115 L1 + 138 L2 + 157 L3), all passing**,
+- **Permanent test suite: 425 tests (115 L1 + 126 L2 + 184 L3), all passing**,  each layer against its own dedicated disposable database — and enforced by
+  CI (`.github/workflows/ci.yml`)
   each layer against its own dedicated disposable database — and enforced by
   CI (`.github/workflows/ci.yml`)
 - `test`, `e2e`, `typecheck`, and `lint` all pass (0 errors, 0 warnings)
@@ -178,16 +212,33 @@ before any change was made.
   lint, L1+L2, the production build, and L3 with axe — validated locally
   against a clean checkout; not yet executed remotely (no remote)
 
-**Currently being developed:** nothing. Phase 8 is finished.
+**Currently being developed:** nothing. Phase 9 is finished — **V1 is
+feature-complete**.
 
-**Working tree:** clean at the Phase 8 commit.
+**Working tree:** clean at the Phase 9 commit.
 
-**Not yet built:** dashboard statistics (see §8).
-Not yet decided: a git remote / first push (§10.6, §14).
+**Not yet decided:** a git remote / first push (§10.6, §14); V1 wrap-up
+tooling (stale README, unused `tsx`).
 
 ## 4. Last Completed Milestone
 
-### Phase 8 — Task search (current)
+### Phase 9 — Dashboard statistics (current)
+
+Files touched: `queries/tasks.ts` (`TaskStats`, `getTaskStats`,
+`getDashboardData` — existing functions untouched), `page.tsx` (one call),
+new `TaskStats.tsx`, tests (`tasks.test.ts` L2 +8, new `task-stats.spec.ts`
+L3 +7). No schema, migration, action, or existing-component behavior change.
+
+| Aspect | Decision |
+|---|---|
+| Shape | `{ total, open, completed }`; `open ≡ remainingCount` (pinned); `completed = total − open` (pinned against per-row flags) |
+| Scope | Global — identical on every list-state URL (pinned across filter/sort/search combinations) |
+| Rule reuse | `open` counts with the SAME `INCOMPLETE_WHERE` object as the list count; no second predicate exists |
+| Data path | Two parallel `prisma.task.count` calls; `getDashboardData` composes list + stats in one await |
+| UI | `TaskStatsSection`: `<dl>` with `aria-label` + polite `aria-live`; compact single row; mobile-safe |
+| Known trap | A `todo`-filter narrowing mutation is mathematically invisible in the open count (it already implies todo) — the `done` filter is the observable drill case |
+
+### Phase 8 — Task search (previous milestone)
 
 Files touched: `constants.ts` (`SEARCH_MAX_LENGTH`), `validations/task.ts`
 (`parseTaskSearch`), `db.ts` (`sqlJoin` re-export), `queries/tasks.ts`
@@ -377,16 +428,17 @@ semantics, and adds genuine containment, all local to the component:
 
 | Field | Value |
 |---|---|
-| Message | `feat: add task search` |
+| Message | `feat: add dashboard statistics` |
 | Hash | run `git log -1` — this file is committed *as part of* that commit, so it cannot contain its own hash. Git is authoritative. |
-| Parent | `3bc0576` (`feat: add task sorting`) |
+| Parent | `dd99d8e` (`feat: add task search`) |
 | Branch | `main` |
 | Remotes | none configured (repo is local-only; CI has therefore never run remotely) |
 
-**Full history (15 commits, oldest last):**
+**Full history (16 commits, oldest last):**
 
 ```
-<this commit>  feat: add task search
+<this commit>  feat: add dashboard statistics
+dd99d8e  feat: add task search
 3bc0576  feat: add task sorting
 1edd9ca  feat: add task filtering
 035eb12  ci: add automated quality gates
@@ -509,7 +561,7 @@ None of these are started. All are read-side additions to the query layer.
 | **Search** | No index can serve `LIKE '%term%'` in SQLite; will be a full scan. Needs FTS5 or an accepted cost decision. |
 | ~~**Sort**~~ | **Shipped in Phase 7** (`created` / `dueDate` / `priority` via `?sort=`). The `priority` index was NOT added: no demonstrated need at V1 scale (see §12). |
 | ~~**Search**~~ | **Shipped in Phase 8** (`title` + `description`, `?search=`). LIKE-based, no FTS5, no index — see §9.17 for the decision and §12 for the revisit trigger. |
-| **Dashboard statistics** | Only `remainingCount` exists. **Warning: this creates a *third* encoding of the completion rule** — see §9. |
+| ~~**Dashboard statistics**~~ | **Shipped in Phase 9** (global `total`/`open`/`completed`). The feared extra completion-rule encoding did NOT happen: `open` reuses `INCOMPLETE_WHERE` and `completed` is arithmetic. |
 
 ## 9. Important Architectural Decisions
 
@@ -781,17 +833,18 @@ never proof of accessibility (see §11).
 **L1** pure validation unit tests · **L2** server-action + query-layer
 integration against real SQLite · **L3** Playwright E2E.
 
-### Permanent tests in the repository: **410** — 115 L1 + 138 L2 + 157 L3
+### Permanent tests in the repository: **425** — 115 L1 + 126 L2 + 184 L3
 
 | Suite | Tests | Database | Mocks |
 |---|---|---|---|
 | `src/lib/validations/task.test.ts` | 115 | none (pure) | none |
 | `src/actions/tasks.test.ts` | 54 | real SQLite | `next/cache` only |
-| `src/lib/queries/tasks.test.ts` | 64 | real SQLite | none |
+| `src/lib/queries/tasks.test.ts` | 72 | real SQLite | none |
 | `e2e/task-crud.spec.ts` | 43 | real SQLite (e2e.db) | none — real browser |
 | `e2e/task-filter.spec.ts` | 22 | real SQLite (e2e.db) | none — real browser |
 | `e2e/task-search.spec.ts` | 22 | real SQLite (e2e.db) | none — real browser |
 | `e2e/task-sort.spec.ts` | 21 | real SQLite (e2e.db) | none — real browser |
+| `e2e/task-stats.spec.ts` | 7 | real SQLite (e2e.db) | none — real browser |
 | `e2e/keyboard-focus.spec.ts` | 18 | real SQLite (e2e.db) | none — real browser |
 | `e2e/accessibility.spec.ts` | 20 | real SQLite (e2e.db) | none — real browser |
 | `e2e/responsive.spec.ts` | 11 | real SQLite (e2e.db) | none — real browser |
@@ -1051,31 +1104,26 @@ Deliberately postponed. **Do not add these without explicit approval.**
 ```
 NEXT ACTION:
 
-The last V1 read-side feature: DASHBOARD STATISTICS (§8). Phase 8 (search)
-is complete and committed; do not start it without explicit approval of the
-scope.
+**V1 is feature-complete.** All defined read-side features ship: filtering,
+sorting, searching, and dashboard statistics, enforced by 425 permanent
+tests, typecheck, lint, the production build, axe, and the CI workflow.
 
-Note for that phase: reading completion state is now encoded in FOUR places
-(INCOMPLETE_WHERE, isIncomplete, whereForFilter, and the raw-path WHERE),
-and §9.18's warning about a third statistics encoding applies with force —
-decide deliberately whether statistics reads through getTaskList's
-view model or adds a fifth representation.
+The remaining items are product/tooling decisions, not features:
 
-The list-state URL contract is now THREE validated parameters (filter,
-sort, search), all normalized by parseTask* functions, all omitted in
-canonical default URLs, all carried by every control. Any new list-state
-parameter must follow that precedent.
-
-Also still open, unchanged: the remote/push decision (§10.6) — CI has never
-executed remotely — and the `tsx` cleanup (§12).
+  1. The remote/push decision (§10.6) — CI has never executed remotely; one
+     push converts the validated workflow into real enforcement.
+  2. V1 wrap-up tooling: the stale create-next-app README (§10.5) and the
+     unused `tsx` dependency (§10.17, §12) — a dedicated tooling PR.
+  3. Any post-V1 work (auth before multi-user, dark-mode CSS cleanup, FTS5
+     if search scale ever demands it) is documented in §12 and needs its own
+     approved scope.
 
 Constraints:
   - Do NOT create a remote, push, or share credentials as a side effect of
     other work.
   - Do NOT weaken the database gates or the axe allowlist.
-  - Do NOT extend the raw-SQL path further; it now serves the priority CASE
-    and escaped-LIKE search. Anything beyond that needs a deliberate design
-    with a probe first.
+  - Do NOT extend the raw-SQL path further without a deliberate design and
+    a probe.
 
 Verify before committing anything further: npm test, npm run e2e,
 npm run typecheck, npm run lint, npm run build — or the aggregate
@@ -1390,6 +1438,28 @@ works (the field group is keyed on the created id) and is still asserted.
   `document-title` flake it fixes was real at roughly 1 run in 3.
 - The axe allowlist is empty. Resist adding to it. If axe reports something,
   the fix belongs in the application.
+
+### Phase 9 handoff notes (new)
+
+- **The mutation audit caught the test suite, not just the code.** The
+  stats-narrowed-by-filter drill passed silently on first run because the
+  `todo` filter cannot change the open count — `INCOMPLETE_WHERE` already
+  implies `status = todo`, so ANDing them is a no-op. When the "global
+  meaning" of a count is pinned, use a filter that can actually move the
+  number (`done` collapses open to 0 here). The strengthened test documents
+  this asymmetry inline.
+- **Reading rendered numbers: never scrape flex-row text.** The stats
+  section's `innerText` is `"Total1Open1Completed0"` — flex items concatenate
+  without whitespace, so both a regex and `toContainText("Total 1")` fail.
+  Read `<dd>` locators structurally instead. Related: a mutation's row state
+  can settle a beat before the section re-renders, so every numeric
+  assertion uses `expect.poll(() => readStats(page))`, never a single
+  immediate read — the Phase 3 "settled state" rule, now with a concrete
+  failure mode on record.
+- **`getDashboardData` is deliberately thin** (a `Promise.all` of two
+  module-local reads). If a future feature needs list data the view model
+  does not carry, extend the query layer — do not reach around it from the
+  page.
 
 ### Phase 8 handoff notes (new)
 

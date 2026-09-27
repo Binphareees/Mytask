@@ -14,7 +14,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DONE_STATUS, TODO_STATUS } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { getTaskList } from "@/lib/queries/tasks";
+import { getDashboardData, getTaskList, getTaskStats } from "@/lib/queries/tasks";
 import { ensureTestSchema } from "@tests/helpers/test-db";
 
 beforeAll(() => {
@@ -1182,5 +1182,161 @@ describe("getTaskList search", () => {
     const second = (await getTaskList({ search: ["milk"] })).tasks.map((task) => task.id);
 
     expect(second).toEqual(first);
+  });
+});
+
+/**
+ * L2 — dashboard statistics (Phase 9).
+ *
+ * The contract from the approved audit: stats are GLOBAL, `open` reuses the
+ * list count's own INCOMPLETE_WHERE (so `stats.open` must always equal the
+ * list's `remainingCount` for the same database state), and `completed` is
+ * the ARITHMETIC complement `total - open` — never a second predicate like
+ * `status = done`, which would misclassify the half-completed and
+ * unknown-status rows the completion rule deliberately counts as complete.
+ */
+describe("getTaskStats", () => {
+  /**
+   * The adversarial dataset: covers every completion edge the rule
+   * distinguishes, plus priorities/dates for realism.
+   */
+  async function seedStatsDataset(): Promise<void> {
+    await insert({ title: "open plain", createdAt: new Date("2022-01-01T00:00:00Z") });
+    await insert({
+      title: "open high",
+      priority: "high",
+      dueDate: "2026-12-01",
+      createdAt: new Date("2021-06-01T00:00:00Z"),
+    });
+    await insert({
+      title: "done proper",
+      status: DONE_STATUS,
+      completedAt: new Date("2021-01-02T00:00:00Z"),
+      createdAt: new Date("2021-01-01T00:00:00Z"),
+    });
+    // status todo WITH a timestamp: neither todo nor done, yet complete per
+    // the rule. This is the row that catches `completed = count(status=done)`.
+    await insert({
+      title: "half completed",
+      completedAt: new Date("2020-06-02T00:00:00Z"),
+      createdAt: new Date("2020-06-01T00:00:00Z"),
+    });
+    await insert({
+      title: "unknown status",
+      status: "archived",
+      createdAt: new Date("2019-01-01T00:00:00Z"),
+    });
+  }
+
+  it("reports all zeros on an empty database", async () => {
+    await expect(getTaskStats()).resolves.toEqual({
+      total: 0,
+      open: 0,
+      completed: 0,
+    });
+  });
+
+  it("counts every task as total, regardless of status or shape", async () => {
+    await seedStatsDataset();
+
+    expect((await getTaskStats()).total).toBe(5);
+  });
+
+  it("derives open from the one completion rule, not a new predicate", async () => {
+    await seedStatsDataset();
+
+    // Exactly the rows that are todo AND completedAt IS NULL. The unknown
+    // status is NOT open, and the half-completed row is NOT open.
+    expect((await getTaskStats()).open).toBe(2);
+  });
+
+  it("derives completed as total - open, matching the view model's flags", async () => {
+    await seedStatsDataset();
+
+    const { tasks } = await getTaskList();
+    const stats = await getTaskStats();
+
+    // The arithmetic identity must agree with the per-row flags the list
+    // renders — the same rule measured two ways, always equal.
+    expect(stats.completed).toBe(stats.total - stats.open);
+    expect(stats.completed).toBe(tasks.filter((task) => task.isComplete).length);
+    // The half-completed and unknown-status rows ARE complete here.
+    expect(stats.completed).toBe(3);
+  });
+
+  it("never drifts from the list's remaining count", async () => {
+    await seedStatsDataset();
+
+    // The no-drift pin: same rule, same database, same number — for every
+    // list-state combination, not just the default view.
+    for (const filter of ["all", "todo", "done"] as const) {
+      const { remainingCount } = await getTaskList({ filter });
+
+      expect((await getTaskStats()).open).toBe(remainingCount);
+    }
+  });
+
+  it("is global: identical under every filter, sort, and search", async () => {
+    await seedStatsDataset();
+
+    const baseline = await getTaskStats();
+
+    for (const options of [
+      { filter: "todo" as const },
+      { filter: "done" as const },
+      { sort: "priority" as const },
+      { sort: "dueDate" as const },
+      { search: ["open"] },
+      { filter: "todo" as const, sort: "priority" as const, search: ["high"] },
+    ]) {
+      expect(await getTaskStats(), JSON.stringify(options)).toEqual(baseline);
+    }
+
+    // And the list itself IS narrowed by those options (2 of 5 rows are
+    // open+matching), proving the pin above is not vacuous.
+    const filtered = await getTaskList({
+      filter: "todo",
+      sort: "priority",
+      search: ["high"],
+    });
+    expect(filtered.tasks).toHaveLength(1);
+    expect(filtered.remainingCount).toBe(2);
+  });
+
+  it("is deterministic: repeated calls return identical numbers", async () => {
+    await seedStatsDataset();
+
+    const first = await getTaskStats();
+    const second = await getTaskStats();
+
+    expect(second).toEqual(first);
+  });
+
+  it("composes with the list through getDashboardData, stats un-narrowed", async () => {
+    await seedStatsDataset();
+
+    // The todo filter cannot expose a narrowing bug (INCOMPLETE_WHERE already
+    // implies status=todo), so the done filter is the observable case: if the
+    // stats were narrowed by it, open would collapse from 2 to 0.
+    const { list, stats } = await getDashboardData({ filter: "done" });
+
+    expect(list.tasks.map((task) => task.title)).toEqual(["done proper"]);
+    expect(stats).toEqual({ total: 5, open: 2, completed: 3 });
+
+    // The todo+search case is also covered: the list narrows to the matching
+    // open rows, the stats do not move.
+    const composed = await getDashboardData({
+      filter: "todo",
+      search: ["open"],
+    });
+
+    // The list is narrowed (both rows whose titles contain the word "open"
+    // match) and stays newest-first.
+    expect(composed.list.tasks.map((task) => task.title)).toEqual([
+      "open plain",
+      "open high",
+    ]);
+    expect(composed.list.remainingCount).toBe(2);
+    expect(composed.stats).toEqual({ total: 5, open: 2, completed: 3 });
   });
 });

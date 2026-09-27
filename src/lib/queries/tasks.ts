@@ -30,6 +30,25 @@ export type TaskListData = {
   remainingCount: number;
 };
 
+/**
+ * Global, view-independent task counts for the dashboard.
+ *
+ * The contract (settled in the Phase 9 audit and approved):
+ *
+ *   total     -> every task, all statuses
+ *   open      -> incomplete, by the ONE completion rule (see below)
+ *   completed -> total - open, arithmetic — never a second predicate
+ *
+ * `open` deliberately reuses {@link INCOMPLETE_WHERE} — the identical object
+ * that powers the list's remaining count — so the statistics cannot drift
+ * from the list without the same edit touching both. `completed` is NOT
+ * counted as "status = done": a half-completed row (status todo with a
+ * timestamp) or an unknown-status row is neither todo nor done, yet the view
+ * model correctly reports it complete; the arithmetic identity preserves
+ * exactly that semantics. Statistics take no options: they describe the
+ * whole dataset, like the remaining count.
+ */
+
 export type TaskListOptions = {
   /** Which completion slice to return. Defaults to `all`. */
   filter?: TaskFilter;
@@ -353,4 +372,45 @@ export async function getTaskList(
     tasks: rows.map(toListItem),
     remainingCount,
   };
+}
+
+/**
+ * Global task statistics for the dashboard. `open` reuses
+ * {@link INCOMPLETE_WHERE} — the list's remaining count IS this number, and
+ * the L2 suite pins that identity — and `completed` is derived as
+ * `total - open`, so no second completion rule exists anywhere. Takes no
+ * options by design: statistics describe the whole dataset, exactly like the
+ * remaining count.
+ */
+export type TaskStats = {
+  total: number;
+  open: number;
+  completed: number;
+};
+
+export async function getTaskStats(): Promise<TaskStats> {
+  const [total, open] = await Promise.all([
+    prisma.task.count({}),
+    prisma.task.count({ where: INCOMPLETE_WHERE }),
+  ]);
+
+  return {
+    total,
+    open,
+    completed: total - open,
+  };
+}
+
+/**
+ * One read path for the page: the (filtered, sorted, searched) task list
+ * alongside the global statistics. Both members come from this module so the
+ * completion rule stays in one place; the Promise.all mirrors the list read's
+ * own parallel structure.
+ */
+export async function getDashboardData(
+  options: TaskListOptions = {},
+): Promise<{ list: TaskListData; stats: TaskStats }> {
+  const [list, stats] = await Promise.all([getTaskList(options), getTaskStats()]);
+
+  return { list, stats };
 }

@@ -2,13 +2,14 @@ import { TaskFilterControl, TaskSortControl } from "@/components/TaskFilterContr
 import { TaskForm } from "@/components/TaskForm";
 import { TaskList } from "@/components/TaskList";
 import { TaskSearchControl } from "@/components/TaskSearchControl";
+import { TaskStatsSection } from "@/components/TaskStats";
 import {
   DEFAULT_TASK_FILTER,
   DEFAULT_TASK_SORT,
   type TaskFilter,
   type TaskSort,
 } from "@/lib/constants";
-import { getTaskList } from "@/lib/queries/tasks";
+import { getDashboardData } from "@/lib/queries/tasks";
 import {
   parseTaskFilter,
   parseTaskSearch,
@@ -49,7 +50,8 @@ export default async function Home({
   const sort: TaskSort = sortResult.success ? sortResult.data : DEFAULT_TASK_SORT;
   const search: string[] = searchResult.success ? searchResult.data : [];
 
-  const { tasks, remainingCount } = await getTaskList({ filter, sort, search });
+  const { list, stats } = await getDashboardData({ filter, sort, search });
+  const { tasks, remainingCount } = list;
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 sm:py-12">
@@ -61,6 +63,8 @@ export default async function Home({
       </div>
 
       <TaskForm />
+
+      <TaskStatsSection stats={stats} />
 
       <div className="flex flex-col gap-3">
         <TaskSearchControl
